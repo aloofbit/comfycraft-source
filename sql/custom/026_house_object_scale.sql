@@ -1,0 +1,32 @@
+-- 026 -- furniture can be resized.  RUN AGAINST tw_char, NOT tw_world.
+--
+-- DB\bin\mariadb.exe -h 127.0.0.1 -P 3307 -u root tw_char < sql\custom\026_house_object_scale.sql
+--
+-- 0 means "never resized", so it reads as the template's own size rather than
+-- as a scale of zero. Everything already in a house keeps its proportions.
+--
+-- THE CORE ALREADY HAD PER-OBJECT SCALING and building a second one would have
+-- been a mistake. GameObject::Create ends with
+--
+--     SetObjectScale(sGuidObjectScaling.GetScale(GetGUID(), goinfo->size))
+--
+-- so a scale registered against a full guid is applied every time that object
+-- is created -- including every grid reload, for free. tw_world.object_scaling
+-- is its table and .gobject scale is its other caller. The first attempt here
+-- added a `scale` field to GameObjectData and applied it in
+-- GameObject::LoadFromDB, which would have been a parallel mechanism doing the
+-- same job slightly differently.
+--
+-- gameobject_template.size was never the answer: it is shared by every object
+-- of an entry, so resizing one chair would resize all of them in every house.
+--
+-- SO WHY A COLUMN HERE AS WELL? Because tw_char.house is the authority for
+-- housing, and object_scaling lives in tw_world -- a database that gets
+-- rebuilt, reimported and tidied on its own schedule. A house that came back
+-- from a world DB refresh with everything at default proportions would be a
+-- nasty surprise, and the rows to fix it would be gone. HouseMgr::LoadFromDB
+-- pushes these values back into the registry at startup, so the two cannot
+-- drift and this side wins.
+
+ALTER TABLE house_object
+    ADD COLUMN scale FLOAT NOT NULL DEFAULT 0 AFTER rot3;

@@ -1,0 +1,26 @@
+-- 025 -- the handle settles: a small gnome gear.
+--
+-- Chosen by eye through .house handle, which is what that command is for, and
+-- baked here so the runtime override is no longer carrying it.
+--
+--   display 451  World\Generic\Gnome\Passive Doodads\Gears&Levers\GnomeBigGear.mdx
+--   size    0.1  -- the model is 3.78 yards across, so this lands near 0.38
+--
+-- Unlike the four attempts before it, this one is SOLID: 451 has a collision
+-- mesh in vmaps/temp_gameobject_models (0.47 x 3.78 x 3.78) and no DBC sound.
+-- That is the rule from 023 finally paying off -- the King Gears in 024
+-- (27070-27073) all lack collision meshes, which put them in the same bucket as
+-- the wisps that spun and hummed.
+--
+-- Collision is switched off at summon time regardless: SummonHandle calls
+-- SetGoState(GO_STATE_ACTIVE), and UpdateCollisionState only enables a
+-- non-chest model while the state is GO_STATE_READY. Picking solid geometry to
+-- get a quiet model always means inheriting a collision box to turn off.
+--
+-- Height and forward offset are NOT here. They are not gameobject_template
+-- columns -- they are ours, applied when the handle is summoned -- so they live
+-- as HOUSE_HANDLE_HEIGHT and HOUSE_HANDLE_FORWARD in Housing/HouseMgr.h.
+-- .house handle height / forward tune them live; changing the shipped default
+-- is a rebuild.
+
+UPDATE gameobject_template SET displayId = 451, size = 0.1 WHERE entry = 100010;

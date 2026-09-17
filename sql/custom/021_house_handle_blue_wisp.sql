@@ -1,0 +1,21 @@
+-- 021 -- back to the classic blue wisp, hum and all.
+--
+-- 019 went to a crystal and 020 to WispRed, both chasing silence. WispRed is
+-- silent but carries a lighting effect that reads badly indoors, and the blue
+-- wisp was the right marker all along. So the look wins and the hum stays.
+--
+-- THE HUM CANNOT BE REMOVED. Every one of the eight displays on model 207
+-- (Creature\Wisp\Wisp.mdx) has CreatureDisplayInfo soundOverride 0 and falls
+-- through to sound data 194, whose only entry is field 23 = 3350 WispLoop. The
+-- field that could override it is never used that way in the DBC, and editing
+-- server/dbc/ changes nothing because the client reads its own copy from the
+-- MPQ. Short of a patch MPQ there is no lever here.
+--
+-- What actually made it bearable was not a model change at all: handles now
+-- appear within 3 yards and despawn past 5, so one or two are up at a time
+-- rather than one per object. The hum was a room full of wisps, not the wisp.
+--
+-- 019 and 020 are kept rather than deleted -- they carry the model research,
+-- and the shortlist in 019 is the answer if this ever needs revisiting.
+
+UPDATE creature_template SET display_id1 = 1824, scale = 1 WHERE entry = 100010;

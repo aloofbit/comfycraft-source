@@ -1,0 +1,18 @@
+/samples/
+/data/
+/build/
+/.vscode/
+*.kate-swp
+*.exe
+/src/shared/revision.h
+
+# CMake writes the binaries to bin/Release, not build/, so that needs its own
+# rule. *.exe above catches the executables but not the .pdb beside them, and
+# mangosd.pdb is 218 MB -- two were committed by accident in 5b67f28 and marked
+# the tree dirty after every single build until they were untracked 2026-09-01.
+/bin/
+
+# Local backup copies made before editing (never meant to be committed)
+*.bak
+*.bak.*
+*.bak-*

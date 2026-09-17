@@ -1,0 +1,59 @@
+# Exalted with every faction, one command per line (paste in chat, one at a time).
+# Alternative to sql/custom/005_max_reputation.sql, which does all 54 at once but
+# requires the character to be logged out. These work while logged in.
+# 42999 = top of Exalted. Faction ids come from tw_world.faction (reputation_list_id >= 0).
+
+.modify rep 469 42999 # Alliance
+.modify rep 891 42999 # Alliance Forces
+.modify rep 529 42999 # Argent Dawn
+.modify rep 709 42999 # Battleground Neutral
+.modify rep 87 42999  # Bloodsail Buccaneers
+.modify rep 21 42999  # Booty Bay
+.modify rep 910 42999 # Brood of Nozdormu
+.modify rep 609 42999 # Cenarion Circle
+.modify rep 61 42999  # Dalaran
+.modify rep 909 42999 # Darkmoon Faire
+.modify rep 530 42999 # Darkspear Trolls
+.modify rep 69 42999  # Darnassus
+.modify rep 10 42999  # Draenei Exiles
+.modify rep 1001 42999 # Durotar Labor Union
+.modify rep 1014 42999 # Earthen Ring
+.modify rep 577 42999 # Everlook
+.modify rep 729 42999 # Frostwolf Clan
+.modify rep 369 42999 # Gadgetzan
+.modify rep 92 42999  # Gelkis Clan Centaur
+.modify rep 54 42999  # Gnomeregan Exiles
+.modify rep 67 42999  # Horde
+.modify rep 892 42999 # Horde Forces
+.modify rep 749 42999 # Hydraxian Waterlords
+.modify rep 47 42999  # Ironforge
+.modify rep 1011 42999 # Kul Tiras
+.modify rep 93 42999  # Magram Clan Centaur
+.modify rep 789 42999 # Moro'gai
+.modify rep 76 42999  # Orgrimmar
+.modify rep 470 42999 # Ratchet
+.modify rep 630 42999 # Ravasaur Trainers
+.modify rep 349 42999 # Ravenholdt
+.modify rep 893 42999 # Revantusk Trolls
+.modify rep 629 42999 # Shatterspear Trolls
+.modify rep 809 42999 # Shen'dralar
+.modify rep 269 42999 # Silvermoon Remnant
+.modify rep 890 42999 # Silverwing Sentinels
+.modify rep 1008 42999 # Steamwheedle Blood Ring
+.modify rep 169 42999 # Steamwheedle Cartel
+.modify rep 1012 42999 # Stonemaul Tribe
+.modify rep 730 42999 # Stormpike Guard
+.modify rep 72 42999  # Stormwind
+.modify rep 70 42999  # Syndicate
+.modify rep 510 42999 # The Defilers
+.modify rep 509 42999 # The League of Arathor
+.modify rep 108 42999 # Theramore
+.modify rep 59 42999  # Thorium Brotherhood
+.modify rep 81 42999  # Thunder Bluff
+.modify rep 576 42999 # Timbermaw Hold
+.modify rep 68 42999  # Undercity
+.modify rep 1007 42999 # Wardens of Time
+.modify rep 889 42999 # Warsong Outriders
+.modify rep 471 42999 # Wildhammer Clan
+.modify rep 589 42999 # Wintersaber Trainers
+.modify rep 270 42999 # Zandalar Tribe

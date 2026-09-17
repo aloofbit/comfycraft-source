@@ -1,0 +1,73 @@
+-- ============================================================================
+--  The guest list is retired -- the party is the whole permission  (tw_char)
+-- ============================================================================
+--  There were TWO ways to be allowed into somebody's house: a `house_guest`
+--  row, and being in their party. Two permission systems for one question, and
+--  the cost was that every question about one had to be asked about the other:
+--
+--    * Could a party visitor be kicked out? No -- `.house guest kick` opened
+--      with `if (!IsGuest(...))` and answered "They are not on the list.", so
+--      somebody who walked in on a party ticket could NOT be removed at all,
+--      and the forced instance only lapses when they leave the map.
+--    * Should being kicked from a party eject you? Unclear, because you might
+--      hold a guest row as well and be there on that instead.
+--
+--  Collapsing to one made both questions disappear rather than answering them.
+--
+--  WHY THE PARTY IS THE BETTER HALF TO KEEP -- it revokes itself. A guest row
+--  is state somebody has to remember to clean up; a party ends on its own, and
+--  when it does the visit is over with nothing left behind. Housing already
+--  resolved the party live and never stored it (HouseMgr::GetPartyLeader), so
+--  the model was already there.
+--
+--  THE RULE IS ONE SENTENCE NOW: **the host leads the party.** That is not a
+--  restriction, it is the tie-breaker doing real work -- doors bind to
+--  TEMPLATES, so several party members can all be "home" at the same door, and
+--  the walk-in path has no menu to ask with. The leader is the deterministic
+--  answer to "whose house is behind this door".
+--
+--  WHAT IT COSTS, chosen knowingly: nobody can look at your house while you
+--  are offline.
+--
+--  Companion changes, all in `source`:
+--    * `.house guest invite|kick|list` and their Chat.cpp rows -- gone.
+--    * `m_guests`, `LoadGuests`, `IsGuest`, `GetGuests`, `AddGuest`,
+--      `DropGuest` -- gone.
+--    * `HouseMgr::EvictLapsedVisitors` -- NEW, on the instance script's
+--      existing throttle. Re-asks the door's own question for everyone inside
+--      and sends home anyone whose party has ended. A poll rather than a
+--      `Group::RemoveMember` hook because a party can end six ways -- kicked,
+--      left, disbanded, either side logging out, the leader promoted away, the
+--      leader zoning -- and a poll catches all six with no coupling.
+--    * `SEC_DEVELOPER` still visits without a party, which is what keeps staff
+--      off `.appear` (destructive here -- see CLAUDE.md under "Visiting").
+--
+--  ORDER: the binary must lead. A running server with the old binary keeps
+--  SELECTing this table at startup, and a missing table is a HARD CRASH here,
+--  not a warning. Swap the binary first, then run this. Nothing reads it after
+--  the swap, so a gap in the other direction is harmless.
+--
+--  Apply with:
+--    Get-Content sql\custom\056_retire_house_guest.sql | DB\bin\mariadb.exe -h 127.0.0.1 -P 3307 -u root tw_char
+-- ============================================================================
+
+DROP TABLE IF EXISTS `house_guest`;
+
+-- ----------------------------------------------------------------------------
+-- ROLLBACK
+--
+-- Re-creating the table is not enough on its own -- the binary no longer reads
+-- it, so this only matters alongside rolling `source` back past the commit that
+-- retired it. The schema as it stood:
+--
+-- CREATE TABLE `house_guest` (
+--   `house_id`   int unsigned NOT NULL,
+--   `account`    int unsigned NOT NULL,
+--   `level`      tinyint unsigned NOT NULL DEFAULT 1,
+--   `granted_at` bigint unsigned NOT NULL DEFAULT 0,
+--   PRIMARY KEY (`house_id`,`account`)
+-- ) ENGINE=MyISAM DEFAULT CHARSET=utf8;
+--
+-- The rows themselves are not recoverable from here. There were two when this
+-- ran, both test accounts (508 and 510); a live server would want a dump first.
+-- ----------------------------------------------------------------------------

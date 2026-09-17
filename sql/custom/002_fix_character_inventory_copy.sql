@@ -1,0 +1,32 @@
+-- ============================================================================
+--  FIX: missing tw_char.character_inventory_copy  (crash on startup)
+-- ============================================================================
+--  Symptom: mangosd crashes during startup, every start, at:
+--
+--    Making copy of character_inventory table.
+--    SQL: TRUNCATE `character_inventory_copy`
+--    [1146] Table 'tw_char.character_inventory_copy' doesn't exist
+--    ObjectMgr::BackupCharacterInventory()
+--    HonorMaintenancer::DoMaintenance()
+--    World::SetInitialWorldSettings()
+--
+--  Cause: honor maintenance runs on the daily rollover during world startup and
+--  snapshots character_inventory into a scratch table. That table was never
+--  created here - a partially applied migration, evidenced by its sibling
+--  character_skills_copy existing already.
+--
+--  The core does, verbatim (strings extracted from mangosd.exe):
+--    TRUNCATE `character_inventory_copy`
+--    ALTER TABLE `character_inventory_copy` DISABLE KEYS
+--    INSERT INTO `character_inventory_copy` SELECT * FROM `character_inventory`
+--    ALTER TABLE `character_inventory_copy` ENABLE KEYS
+--    SELECT `item`, `item_template` FROM `character_inventory_copy` WHERE `guid` = ?
+--
+--  So it needs identical columns (SELECT *), the guid index, and MyISAM
+--  (DISABLE KEYS is a MyISAM feature). CREATE TABLE ... LIKE gives all three.
+--
+--  Apply with:
+--    DB\bin\mariadb.exe -h 127.0.0.1 -P 3307 -u root tw_char < sql\custom\002_fix_character_inventory_copy.sql
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS `character_inventory_copy` LIKE `character_inventory`;

@@ -1,0 +1,81 @@
+-- ============================================================================
+--  Dialog scenes: Lua behind a gossip button                      (tw_world)
+-- ============================================================================
+--  Applied with:
+--
+--    Get-Content sql\custom\097_dialog_lua.sql | `
+--      DB\bin\mariadb.exe -h 127.0.0.1 -P 3307 -u root tw_world
+--
+--  APPLY BEFORE THE BINARY THAT READS IT. `LuaScene::LoadAll` runs during
+--  World::SetInitialWorldSettings and a missing table here is `ASSERT(false)`
+--  in DatabaseMysql.cpp and a crash dump, not a warning. Same rule as the bug
+--  tracker's table and `dialog_spot`.
+--
+--  ------------------------------------------------------------------- WHY
+--
+--  `gossip_scripts` already does a scene: one row per beat, each with its own
+--  second, ordered within a second by `priority`. That is enough for anything
+--  a person would write as a list, and the dialog editor draws it as one.
+--
+--  It cannot do a loop, a condition, a variable, or a line whose words depend
+--  on who pressed the button. And "wait two seconds" between every pair of rows
+--  stops being the clearest way to say a thing at about the eighth row.
+--
+--      npc:WalkTo("the fire")
+--      wait(10)
+--      npc:Emote(KNEEL)
+--      wait(4)
+--      npc:Say("wow that fire is hot")
+--      npc:Emote(STAND)
+--      npc:WalkTo("his usual place")
+--      wait(6)
+--      npc:Say("That was an excellent adventure, thanks " .. player.name)
+--
+--  SCRIPT_COMMAND_RUN_LUA (96) is one row in `gossip_scripts` whose `datalong`
+--  is an id here. The source lives in its own table because the widest text
+--  column gossip_scripts has is a 255 byte `comments`.
+--
+--  --------------------------------------------------------------- THE COST
+--
+--  This is the first thing on this server that puts DIALOG BEHAVIOUR somewhere
+--  other than the stock gossip tables. Up to now, `sql/custom/090`'s promise
+--  held in full: drop everything this project added and every conversation
+--  keeps working in game, because it was all `gossip_menu`, `gossip_menu_option`
+--  and `gossip_scripts` that any MaNGOS tool understands.
+--
+--  A button carrying command 96 does not keep working without this table. That
+--  was a deliberate trade for what Lua buys, made 2026-09-15, and it is worth
+--  knowing before adding a second table like it.
+--
+--  -------------------------------------------------------------- THE LIMITS
+--
+--  Lua runs on the MAP'S OWN UPDATE THREAD. A script that loops without waiting
+--  does not hang itself, it hangs every player on that map, so there is an
+--  instruction cap and a wall clock in `LuaScene.cpp` and they are not
+--  optional. The `os`, `io` and `package` libraries are not compiled into the
+--  vendored Lua at all -- see `source/dep/lua/README-comfycraft.md` -- so
+--  `os.execute` is not disabled, it is absent.
+--
+--  ------------------------------------------------------------------ RELOAD
+--
+--      reload dialog_scenes        this table AND dialog_spot, together
+--
+--  They reload together because they are one idea: a scene and the places it
+--  walks to. Each script is compile-checked as it loads and a broken one is a
+--  line in the log, not a refusal -- the row is still stored, so a typo cannot
+--  silently unhook a button.
+--
+--  Re-runnable: CREATE TABLE IF NOT EXISTS, and no seed data.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS `dialog_lua` (
+  `id`      smallint(5) unsigned NOT NULL AUTO_INCREMENT,
+  -- The script. MEDIUMTEXT rather than TEXT for no better reason than that a
+  -- 64KB ceiling on a thing somebody pastes into is a ceiling somebody finds.
+  `source`  mediumtext           NOT NULL,
+  -- What the editor last heard from the compiler, so an author sees the error
+  -- where they are looking rather than in server\errors.log. Written by the
+  -- WEBSITE at save; the core only ever reads this table.
+  `error`   varchar(255)         NOT NULL DEFAULT '',
+  PRIMARY KEY (`id`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;

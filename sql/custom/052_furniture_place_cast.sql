@@ -1,0 +1,55 @@
+-- ============================================================================
+--  Placing a crate becomes a cast  (tw_world)
+-- ============================================================================
+--  With point-and-click placing OFF there is nothing to aim at, so the moment
+--  between right-clicking a crate and the furniture appearing is empty. This
+--  fills it: the crate's spell now actually casts, the client draws its bar and
+--  its crafting animation, and the object goes down when the cast finishes.
+--
+--  ONE ROW. The spell is 33453 "Over-Tinkered Lens" -- see "The Decorator's
+--  Chalk" and the crate-cast notes in CLAUDE.md for why that one, and
+--  docs/notes/point-and-click-placing.md for the retired aiming design. (The
+--  probe that chose this animation was sql/custom/053, deleted once it had
+--  answered -- ten throwaway item entries, the method sql/custom/046 arrived
+--  at. Rebuild it there if another animation is ever wanted.)
+--  (The HOUSE_PLACE_SPELL_AHEAD constant this used to name is gone; nothing
+--  chooses the crate spell at runtime any more, so SQL owns it outright.) All this file does is bind the
+--  script that puts the furniture down when the cast completes.
+--
+--  WHY spell_template AND NOT A HOOK. Spells load from server/dbc/Spell.dbc
+--  here (LoadSpellsFromSql is off), and SpellMgr::LoadSpellScriptNames binds
+--  script_name from this table onto the DBC-loaded rows -- the fix from
+--  2026-08-31 without which every scripted spell was silently inert. The
+--  startup line to check is:
+--
+--      Loaded 953 spell script names (0 for unknown spells, 0 with no compiled script)
+--
+--  BOTH ZEROS MATTER, and the count goes 952 -> 953 with this file applied.
+--  A non-zero second number means the script did not compile in.
+--
+--  THE SCRIPT IS BOUND TO THE SPELL, NOT TO THE ITEM, so anything else that
+--  ever casts 33453 would run it. It guards on there being a cast item, and
+--  HouseUseFurnitureItem checks the entry is furniture, so the worst case is
+--  that it does nothing. Nothing in this DB casts it today.
+--
+--  NEEDS A RESTART, not a reload: script names are read once at startup.
+--
+--  Re-runnable.
+--
+--  Apply with:
+--    Get-Content sql\custom\052_furniture_place_cast.sql | DB\bin\mariadb.exe -h 127.0.0.1 -P 3307 -u root tw_world
+-- ============================================================================
+
+UPDATE `spell_template`
+   SET `script_name` = 'spell_house_furniture_place'
+ WHERE `entry` = 33453;
+
+-- ----------------------------------------------------------------------------
+-- ROLLBACK
+--
+-- Unbinding leaves the crates casting a one-second spell that does nothing, so
+-- roll the binary back with it -- or set point-and-click placing back on, which
+-- takes the cast route out of use entirely.
+--
+-- UPDATE `spell_template` SET `script_name` = '' WHERE `entry` = 33453;
+-- ----------------------------------------------------------------------------

@@ -1,0 +1,36 @@
+-- 019 -- silence the furniture handles.
+--
+-- The wisp hums. Twenty of them in a room hum twenty times, and it is a loop
+-- rather than a one-shot, so it never stops.
+--
+-- IT IS THE MODEL, AND IT CANNOT BE TURNED OFF SERVER-SIDE. The chain is
+-- creature_template.display_id1 -> CreatureDisplayInfo.dbc -> CreatureModelData
+-- -> CreatureSoundData, and for the wisp that lands on:
+--
+--   display 1824 -> model 207 (Creature\Wisp\Wisp.mdx) -> sound data 194
+--   sound data 194: field 23 = SoundEntry 3350 "WispLoop", and nothing else.
+--
+-- Field 23 is the ambient loop. The sound data row carries no other entry --
+-- the hum is the only sound a wisp has. Editing server/dbc/ would change
+-- nothing, because the CLIENT reads its own copy out of the MPQ; same trap as
+-- the enchant reagents in 003, where DB edits were invisible to a client
+-- checking its own Spell.dbc. Short of shipping a patch MPQ, the only lever is
+-- which model we point at.
+--
+-- Only 81 of the 788 creature models have an ambient loop at all, so almost
+-- anything else is silent and this is a free choice on looks alone. The
+-- shortlist below is every silent, marker-shaped candidate; swapping between
+-- them is one UPDATE plus `reload creature_template` in the mangosd console,
+-- then `.house edit off` and on again to resummon.
+--
+--   16135  Creature\QuestObjects\Creature_ScourgeCrystal.mdx     <- chosen
+--   21134  Creature\QuestObjects\creature_demoncrystal_02.mdx
+--    9510  Creature\Spells\Creature_SpellPortal.mdx
+--    1551  Creature\SPELLS\MonsterLure01.mdx
+--   16162  Creature\Shade\ShadeWhite.mdx
+--    1421  Creature\Spells\StasisTotem.mdx
+--
+-- A floating crystal reads as something to click, which is the whole job, and
+-- it is the one shape on that list that cannot be mistaken for furniture.
+
+UPDATE creature_template SET display_id1 = 16135 WHERE entry = 100010;

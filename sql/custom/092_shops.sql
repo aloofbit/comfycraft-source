@@ -1,0 +1,115 @@
+-- ============================================================================
+--  Shops: a name over npc_vendor_template  (tw_world)
+-- ============================================================================
+--  Applied with:
+--
+--    Get-Content sql\custom\092_shops.sql | `
+--      DB\bin\mariadb.exe -h 127.0.0.1 -P 3307 -u root tw_world
+--
+--  APPLY BEFORE THE WEBSITE THAT READS IT. Nothing in the CORE reads this
+--  table -- that is the whole idea, see below -- so mangosd is indifferent to
+--  when it lands. `node website\server.js` is not: /admin/shops queries it on
+--  every render.
+--
+--  WHAT THIS IS, AND WHAT IT DELIBERATELY IS NOT.
+--
+--  A shop is not a new kind of object. It is the stock table it always was:
+--
+--      npc_vendor_template   one row = one thing for sale
+--                            entry     which shop
+--                            item      what
+--                            slot      where in the window (the loader sorts
+--                                      ORDER BY entry, slot)
+--                            maxcount  limited stock, 0 = unlimited
+--                            incrtime  how often limited stock comes back
+--
+--  ...and a creature points at one with creature_template.vendor_id.
+--
+--  So THE CORE NEEDS NO CHANGE FOR ANY OF THIS, and this table exists only
+--  because npc_vendor_template has nowhere to write down the one thing a person
+--  needs and the server does not: a NAME. "200003" is not something anybody
+--  should have to recognise.
+--
+--  Drop this table and every shop keeps working in game, permanently. You would
+--  lose the editor, not the stock. That is the property to preserve if this is
+--  ever reworked. It is the same bargain sql/custom/090 struck for dialogs.
+--
+--  ------------------------------------------- WHY THE TEMPLATE AND NOT npc_vendor
+--
+--  npc_vendor is keyed by CREATURE ENTRY. Three things follow, and all three
+--  are why the 23 vendors this server already has are not the model:
+--
+--    * a shop could not exist before its NPC does, so "make a shop, then decide
+--      who sells it" is not expressible;
+--    * two NPCs cannot share one list;
+--    * A BOT NPC HAS NO CREATURE ENTRY AT ALL, so it could never have one.
+--      npc_vendor_template.entry is an arbitrary id, which is the only reason
+--      bot_npc.vendor_template_id (sql/custom/093) is possible.
+--
+--  ---------------------------------------------------------------- ID BLOCK
+--
+--      200000-200999   shops. `entry` is mediumint unsigned, and everything
+--                      below 999999 was verified empty on 2026-09-14 -- all 153
+--                      of Turtle's own templates sit at 1277702-1500154.
+--
+--  Deliberately NOT the 100000-109999 block this folder uses for creatures and
+--  items. It is a separate namespace, so reuse would be legal; it would also
+--  mean that a number said out loud no longer says which kind of thing it is.
+--
+--  A shop's id IS its npc_vendor_template.entry. There is no second identity to
+--  keep in step, and a row found loose in the stock table can be traced to its
+--  shop without a lookup.
+--
+--  IDS ARE MAX+1 WITHIN THE BLOCK, and deleting a shop must first clear every
+--  creature_template.vendor_id and bot_npc.vendor_template_id pointing at it.
+--  Skip that and the id comes back around to a new shop wearing an old pointer,
+--  which is a vendor quietly selling the wrong thing -- the one failure here
+--  that nobody would think to look for.
+--
+--  ------------------------------------------------------------------ RELOADS
+--
+--  One command covers the stock: `reload npc_vendor` re-reads npc_vendor_template
+--  AND npc_vendor in the same handler (Commands.cpp:18718).
+--
+--  LINKING NEEDS TWO, IN THIS ORDER:
+--
+--      reload creature_template     (first: vendor_id is read off the CACHED
+--                                   template, so the other way round links the
+--                                   shop to nothing and says so only in the log)
+--      reload npc_vendor
+--
+--  ------------------------------------- WHAT THE CORE DROPS WITHOUT SAYING SO
+--
+--  ObjectMgr::IsVendorItemValid (ObjectMgr.cpp:8770) skips a row and writes one
+--  errorDb line. In game there is no error at all, just an item that is not in
+--  the window. The editor has to refuse these itself:
+--
+--    * maxcount > 0 with incrtime = 0, or maxcount = 0 with incrtime > 0.
+--      Either mismatch drops the row. maxcount is tinyint, so 255 is the top.
+--    * an item that does not exist, or a condition_id not in `conditions`.
+--    * the same item twice in one list.
+--    * AN ITEM IN BOTH npc_vendor AND THE TEMPLATE THE SAME CREATURE POINTS AT.
+--      The two lists are CONCATENATED in the vendor window, and a duplicate is
+--      dropped from the template half. This is why importing an existing vendor
+--      into a shop has to delete its npc_vendor rows in the same batch.
+--
+--  And two limits that are not the core's:
+--
+--    * 128 items per window (MAX_VENDOR_ITEMS, Creature.h:486). Curator Sylwen
+--      carries 144 today, so 16 of them are already invisible in game.
+--    * there is no price. Price is item_template.buy_price, and an item at 0
+--      cannot be sold at all. A shop picks items, never what they cost.
+--
+--  Re-runnable: CREATE TABLE IF NOT EXISTS, and no seed data.
+-- ============================================================================
+
+-- `id` IS npc_vendor_template.entry. Not AUTO_INCREMENT: the ids come out of
+-- the block above, allocated by website/lib/shops.js, so that the rule lives
+-- somewhere it can be read rather than in a MyISAM counter.
+CREATE TABLE IF NOT EXISTS `shop` (
+  `id`      mediumint(8) unsigned NOT NULL DEFAULT 0,
+  `name`    varchar(64)           NOT NULL DEFAULT '',
+  `comment` varchar(255)          NOT NULL DEFAULT '',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `name` (`name`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;

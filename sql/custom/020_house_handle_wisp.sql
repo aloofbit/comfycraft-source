@@ -1,0 +1,27 @@
+-- 020 -- back to a wisp, but the silent one.
+--
+-- 019 traded the wisp for a crystal to escape WispLoop. The wisp was the better
+-- marker; the crystal was only ever chosen because it was quiet.
+--
+-- There is a second wisp model, and it does not hum:
+--
+--   model 207   Creature\Wisp\Wisp.mdx      -> sound data 194 -> 3350 WispLoop
+--   model 2268  Creature\WISP\WispRed.mdx   -> no ambient loop at all
+--
+-- All EIGHT displays built on model 207 hum -- every one has soundOverride 0,
+-- so every one falls through to the model default. CreatureDisplayInfo field 2
+-- CAN override the sound, which would have silenced the classic wisp without
+-- changing its look, but nothing in the DBC uses it that way. Model 2268 has
+-- exactly one display, 16587, and that is the whole choice.
+--
+-- It is red rather than blue-white, which is arguably the right way round for
+-- something that is a UI handle rather than scenery.
+--
+-- SCALE 2, NOT 1. Display 16587 carries its own scale of 0.50 -- the classic
+-- wisp displays are all 1.00 -- and creature_template.scale does not replace
+-- that, it multiplies it: Creature::UpdateEntry does
+-- SetObjectScale(cinfo->scale) and the client renders model * displayScale *
+-- objectScale. Left at 1 the handle comes out half the size of the old one,
+-- which is a marker you have to hunt for. 0.50 * 2 = the size it used to be.
+
+UPDATE creature_template SET display_id1 = 16587, scale = 2 WHERE entry = 100010;

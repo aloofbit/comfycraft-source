@@ -1,0 +1,47 @@
+-- ============================================================================
+--  The Invader's Sigil burns  (tw_world)
+-- ============================================================================
+--  Supersedes the spell choice in 075 and the binding in 076. Those two stay as
+--  they are and applying all three in order gives the right answer -- the same
+--  relationship 074 has to 072.
+--
+--  WHY. 5017 "Divining Trance" was picked for its properties and never for how
+--  it looked, and it looks holy: precast kit 99, a white-gold hand glow.
+--  Hunting somebody down should not read as a blessing.
+--
+--  51942 "Shards of Hellfury" has precast kit 60 and cast kit 61 -- byte for
+--  byte the pair IMMOLATE uses, which is the red fire cast -- plus its own
+--  ground impact at 448. Read out of SpellVisual.dbc rather than guessed from
+--  the name, which matters because names in this range describe the quest a
+--  spell was cut for and not what it looks like.
+--
+--  IT IS A DROP-IN, AND THAT IS NOT A GIVEN. The runner-up was 18666 "Corrupt
+--  Redpath", which carries Shadow Bolt's exact kits (114/118) and looked better
+--  in game -- and it is unusable here. Its effectImplicitTargetA1 is 38,
+--  TARGET_UNIT_SCRIPT_NEAR_CASTER, and it has no spell_script_target rows, so
+--  cast from an item with no target it fails SPELL_FAILED_BAD_TARGETS and the
+--  hunt never starts. `.cast self 18666` hides this completely, because that
+--  command supplies the target the item cannot. Test a spell the way the
+--  feature will actually cast it.
+--
+--  So the bar every candidate had to clear, and 51942 does:
+--    effectImplicitTargetA1 = 1   the caster, so no target is needed
+--    effect1 = 3                  DUMMY -- the cast does nothing but look right
+--    description = ''             no borrowed "Use:" line on the tooltip
+--    targets = 0                  no ground reticle
+--    manaCost/recoveryTime/category = 0, stances = 0, requiresSpellFocus = 0
+--    attributesEx = 0, script_name = ''
+--    referenced by no item_template or creature_template row
+--
+--  THE CAST IS 6000ms (castingTimeIndex 171), a second longer than 5017's 5000.
+--  Click-to-arrival is that plus Invasion.WarnSeconds, so 11 seconds rather than
+--  10.
+--
+--  spell_template IS NOT RELOADABLE, so this needs a restart, not a reload.
+--  5017 is handed back its empty script_name in the same breath: a binding left
+--  on a spell nothing uses is how a later feature inherits a surprise.
+-- ============================================================================
+
+UPDATE item_template  SET spellid_1   = 51942                   WHERE entry = 100035;
+UPDATE spell_template SET script_name = 'spell_invasion_search' WHERE entry = 51942;
+UPDATE spell_template SET script_name = ''                      WHERE entry = 5017;

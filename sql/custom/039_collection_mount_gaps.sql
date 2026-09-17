@@ -1,0 +1,46 @@
+-- ============================================================================
+--  Mount collection: fill the mappable gap  (tw_world)
+-- ============================================================================
+--  Three mount items had no `collection_mount` row, so using them did nothing
+--  at all - MountManager::GetMountSpellId misses, spell_turtle_mount_collection
+--  returns without learning anything, and because mount items carry
+--  spellcharges_1 = 0 the item is not even consumed. No error is logged and
+--  the player sees nothing. See docs/notes/spell-scripts-and-collections.md.
+--
+--  Only ONE of the three can be fixed here:
+--
+--    80456  Swift Blood Kodo    -> spell 45044 "Swift Blood Kodo"   FIXED BELOW
+--    36532  Blazewing           -> no such spell EXISTS             cannot fix
+--    92018  Dark Riding Talbuk  -> no such spell EXISTS             cannot fix
+--
+--  "No such spell exists" is not a guess. Neither name appears in
+--  `spell_template` NOR in `server/dbc/Spell.dbc` - and the DBC is what
+--  actually loads here (`LoadSpellsFromSql` defaults to off), so adding a
+--  spell_template row would not create a castable spell either. They would
+--  need the spell added to the client's own Spell.dbc via a patch MPQ, which
+--  is a client change, not a server one.
+--
+--  Deliberately NOT guessed: 92018 "Dark Riding Talbuk" has sibling item 92017
+--  "White Riding Talbuk" -> 46527, and the unclaimed Riding Talbuk spells are
+--  46528 "Silver Riding Talbuk" and 46529 "Tan Riding Talbuk". Pointing
+--  "Dark" at "Silver" or "Tan" would hand the player a visibly different mount
+--  from the one the item names. Better a mount that does nothing than one that
+--  lies. Same for Blazewing - there is no flame mount spell to borrow.
+--
+--  Sharing one spell between two items is normal in this table (many spellIds
+--  already serve two items), so 45044 also being mapped from 81198 "Armored
+--  Thunder Bluff Kodo" is not a conflict. The exact name match makes 45044
+--  unambiguously the right spell for 80456.
+--
+--  NOT RELOADABLE. MountManager::LoadFromDB runs once, from World.cpp at
+--  startup ("Loading mount manager..."); there is no .reload for it. This row
+--  takes effect on the next server start. No urgency - nobody holds any of
+--  these three items.
+--
+--  Apply with (PowerShell - '<' is a reserved operator there, so pipe):
+--    Get-Content sql\custom\039_collection_mount_gaps.sql | DB\bin\mariadb.exe -h 127.0.0.1 -P 3307 -u root tw_world
+-- ============================================================================
+
+DELETE FROM collection_mount WHERE itemId = 80456;
+INSERT INTO collection_mount (itemId, spellId) VALUES
+  (80456, 45044);   -- Swift Blood Kodo -> "Swift Blood Kodo"

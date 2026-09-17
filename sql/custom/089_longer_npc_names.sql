@@ -1,0 +1,46 @@
+-- ============================================================================
+--  Room for a real NPC name  (tw_char)
+-- ============================================================================
+--  Applied with:
+--
+--    Get-Content sql\custom\089_longer_npc_names.sql | `
+--      DB\bin\mariadb.exe -h 127.0.0.1 -P 3307 -u root tw_char
+--
+--  APPLY BEFORE THE BINARY THAT READS IT -- though this one is a widening, so
+--  an older binary is unharmed by it. The reverse is not true: going back to
+--  varchar(12) with a longer name stored TRUNCATES it.
+--
+--  WHY. `characters`.name was varchar(12), matching MAX_PLAYER_NAME, whose
+--  comment in ObjectMgr.h:502 calls it "max allowed by client name length".
+--  MEASURED 2026-09-14: THAT COMMENT IS WRONG, or at least is not about
+--  display. With the column widened and a bot NPC exempted from
+--  CheckPlayerName, the 1.12 client renders "Innkeeper Allison" -- seventeen
+--  characters, with a space -- perfectly.
+--
+--  Every limit that looked like the client's turned out to be ours:
+--
+--    the space     ObjectMgr::CheckPlayerName, via isBasicLatinString with
+--                  numericOrSpace = false. Player::LoadFromDB RETURNS FALSE on
+--                  it, so the character never entered the world and the client
+--                  drew "Unknown" over a unit with no name -- which read
+--                  exactly like the client refusing the name. It was not.
+--    the length    this column, and nothing else.
+--
+--  24 rather than something larger because that is MAX_CHARTER_NAME, the
+--  client's limit on a guild name, and it is the longest string the client is
+--  known to accept in a name-shaped field. Going further is untested; this is
+--  as far as the evidence reaches.
+--
+--  ONLY BOT NPCs BENEFIT. A real player still goes through CheckPlayerName at
+--  login, which caps at MAX_PLAYER_NAME and refuses spaces, so nobody can name
+--  a character this way by hand. The column is merely wide enough to hold what
+--  the server chooses to put in it.
+--
+--  NOT re-runnable-guarded, and does not need to be: MODIFY COLUMN to the same
+--  definition is a no-op that MariaDB accepts without complaint.
+-- ============================================================================
+
+ALTER TABLE `characters` MODIFY `name` VARCHAR(24) NOT NULL DEFAULT '';
+
+-- The design's copy has to hold whatever the character can.
+ALTER TABLE `bot_npc` MODIFY `name` VARCHAR(24) NOT NULL DEFAULT '';

@@ -1,0 +1,60 @@
+-- ============================================================================
+--  Factionless: put the capitals' BASE reputation back  (tw_world)
+-- ============================================================================
+--    Get-Content sql\custom\074_factionless_cities_fix.sql | `
+--      DB\bin\mariadb.exe -h 127.0.0.1 -P 3307 -u root tw_world
+--
+--  CORRECTS sql/custom/072, which moved the wrong number. Apply this after it;
+--  072 is left in place as the record of what was tried.
+--
+--  WHAT 072 GOT WRONG. It set base_rep_value2 = 0 on the eight capitals, on the
+--  reasoning that ReputationMgr::GetBaseReputation recomputes the base from this
+--  table at every login, so existing characters would pick the peace up for free.
+--  All true, and all server-side only.
+--
+--  The client never receives the base. ReputationMgr::SendInitialReputations
+--  sends the STANDING alone:
+--
+--      data << uint8(m_faction.second.Flags);
+--      data << uint32(m_faction.second.Standing);   // not base + standing
+--
+--  and the client adds a base out of its own DBFilesClient/Faction.dbc, which
+--  still reads (measured on this install's client copy, server/dbc/Faction.dbc):
+--
+--      72 Stormwind  raceMask=(588, 434, 1, 0)  value=(3100, -42000, 4000, 0)
+--
+--  So after 072 the server computed Neutral and the client computed Hated. The
+--  symptom is a split that looks like nothing else: the guards ignore you, and
+--  every NPC in the city is red and cannot be clicked -- because a 1.12 client
+--  will not send CMSG_GOSSIP_HELLO to something it believes is hostile. The
+--  server would have allowed it; it was never asked.
+--
+--  THE RULE THIS LEAVES BEHIND: the base belongs to the client and must keep
+--  matching Faction.dbc. Standing is the only half the server can move on its
+--  own. Anything that wants to change a reputation without a client patch has
+--  to do it by standing.
+--
+--  So the base goes back to what the DBC says, and the peace is applied as real
+--  standing instead, per character, at login -- ReputationMgr::ApplyFactionlessPeace,
+--  behind Factionless.Enable, tuned by Factionless.CapitalStanding. Both sides
+--  then add the same two numbers and agree.
+--
+--  reputation_flags2 goes back to 2 (AT_WAR) as well, and not only for tidiness:
+--  the new code finds the factions to pacify by asking which ones a race is BORN
+--  at war with (GetDefaultStateFlags carries FACTION_FLAG_AT_WAR). 072 erased
+--  exactly that signal, so leaving it cleared would make the code find nothing.
+--
+--  The tw_char at-war sweep in 072 is left alone -- harmless, and the new code
+--  clears the flag at login regardless.
+--
+--  NOT RELOADABLE. `faction` needs a restart.
+--
+--  Re-runnable: plain idempotent UPDATE.
+--
+--  Design: docs/features/factionless.md, piece 3.
+-- ============================================================================
+
+UPDATE tw_world.faction
+SET    base_rep_value2   = -42000,
+       reputation_flags2 = 2
+WHERE  id IN (47, 54, 68, 69, 72, 76, 81, 530);

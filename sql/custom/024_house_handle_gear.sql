@@ -1,0 +1,34 @@
+-- 024 -- the handle becomes a gnome gear.
+--
+-- Chosen by eye from the addon catalogue, which is what it is for.
+--
+--   display 27070  World\KHAZMODAN\IRONFORGE\PASSIVEDOODADS\GnomeArea\GnomeKingGear.mdx
+--   display 27071  ...\GnomeKingGearSmall.mdx     -- the smaller sibling
+--
+-- HONEST CAVEAT ON THE RULE FROM 023. Neither gear has a collision mesh in
+-- vmaps/temp_gameobject_models, which by 023's rule of thumb puts them in the
+-- same bucket as the wisps that spun and hummed. That rule is a correlation,
+-- not a law: what the vmap extractor actually records is whether the M2 carries
+-- collision geometry, and plenty of static props people are meant to walk
+-- through carry none either. So this may sit still and stay quiet, or it may
+-- turn -- which for a gear is arguably right -- or it may hum, in which case it
+-- goes back on the pile.
+--
+-- The size is a guess and expected to be wrong. Neither gear has a bounding box
+-- recorded, precisely because neither has collision geometry, so there is no
+-- number here to compute a scale from -- the real one is whatever looks right
+-- in front of a chair.
+--
+-- Which is why `.house handle <displayId> [scale]` exists as of this build.
+-- gameobject_template has NO RELOAD in this core -- `reload gameobject` is
+-- LoadGameobjects, the spawn table -- so tuning a marker from SQL costs a full
+-- restart per attempt. The command applies the override at summon time instead:
+--
+--   .house handle 27070 0.15
+--   .house edit off
+--   .house edit on
+--
+-- Settle on a number that way, then put it here and drop the override with
+-- `.house handle reset`. Nothing about the override is persisted, deliberately.
+
+UPDATE gameobject_template SET displayId = 27070, size = 0.25 WHERE entry = 100010;

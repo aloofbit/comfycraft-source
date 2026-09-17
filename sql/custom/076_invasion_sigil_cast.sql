@@ -1,0 +1,42 @@
+-- ============================================================================
+--  The Invader's Sigil casts for real  (tw_world)
+-- ============================================================================
+--  Corrects sql/custom/075 and the script that went with it. The sigil used to
+--  do its search on right-click and cast nothing at all -- the item script
+--  returned true on every path, which stops WorldSession::HandleUseItemOpcode
+--  before CastItemUseSpell.
+--
+--  THAT LOOKED BROKEN IN GAME, and the reason is worth keeping. A 1.12 client
+--  begins animating an item use the instant it sends CMSG_USE_ITEM, and waits
+--  for the server to say what happened. Answer with nothing and it never stops:
+--  the character stands there with its hands glowing. The first test read as
+--  "nothing happens except my hands are glowing" even though the refusal
+--  message -- "Not from a sanctuary. Step outside." -- was sitting in the chat
+--  frame the whole time. The symptom was cosmetic and it hid the real answer.
+--
+--  So the spell casts now. Binding a script to it moves the search to the end
+--  of the cast bar, which fixes the animation by letting it finish honestly
+--  rather than by suppressing it, and gives divining for a victim the couple of
+--  seconds it ought to take. A refusal still costs no cast at all: that is
+--  decided in pItemUse, before the bar ever starts.
+--
+--  5017 IS SAFE TO BIND. It is "Divining Trance", effect 3 (DUMMY), and item
+--  100035 is the only row in item_template that references it. The script
+--  guards on the cast item's entry regardless, so anything that ever casts the
+--  spell by another route falls straight back out.
+--
+--  spell_template IS NOT RELOADABLE. There is no `reload spell_template`, so
+--  this needs a full restart to take effect -- unlike everything in 075, which
+--  `reload item_template` would have picked up live.
+--
+--  APPLY BEFORE THE RESTART that picks up the binary carrying
+--  spell_invasion_search. Script names are resolved once, at startup, from a
+--  DISTINCT sweep of every table with a script_name column (ScriptMgr.cpp), so
+--  a row added after that start is invisible until the next one.
+-- ============================================================================
+
+UPDATE spell_template SET script_name = 'spell_invasion_search' WHERE entry = 5017;
+
+-- The sigil is never consumed on any path, and nothing here has to arrange
+-- that: spellcharges_1 = 0 means TakeCastItem finds nothing expendable, and no
+-- script of ours destroys it.

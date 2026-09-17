@@ -1,0 +1,43 @@
+-- 023 -- the handle stops orbiting and finally stops humming.
+--
+-- 022 moved the handle to a gameobject and kept the wisp look with display 426,
+-- BFD_WispSmall. It still hummed, and it also flew in a one-yard circle, which
+-- made it hard to click.
+--
+-- Both come from the same place, and it is the one place nothing on this side
+-- can reach: THE MODEL FILE. Display 426 has every GameObjectDisplayInfo sound
+-- field set to 0 -- so the hum is not DBC-driven at all, it is a sound emitter
+-- inside the .mdx. The orbit is the model's own animation. There is no server
+-- field for either.
+--
+-- The tell is in vmaps/temp_gameobject_models: display 426 has NO COLLISION
+-- MESH. Nor do 427, 428, 1267, 1307, or G_RelicNESphere. They are not props,
+-- they are light and particle effects, and effects are exactly the things that
+-- animate and emit sound. Every wisp-shaped candidate was in that group, which
+-- is why three model swaps in a row changed nothing.
+--
+-- So the rule for picking a handle model, which is worth keeping:
+--
+--   HAS a collision mesh  =>  real static geometry  =>  sits still, stays quiet
+--   NO collision mesh     =>  effect model          =>  animates, may emit sound
+--
+-- display 3511 World\KhazModan\Blackrock\PassiveDoodads\MuseumGem\MuseumGem01.mdx
+--   0.76 yards, solid, no DBC sound. A gem is the nearest static thing to a
+--   floating wisp, and 0.76 yards is a comfortable click target.
+--
+-- Other small solid silent candidates, if this one looks wrong:
+--   26632  GlyphedCrystal.mdx                 0.97yd  Silithus, runed
+--    2370  CaveMineCrystalFormation04.mdx     0.55yd  small crystal cluster
+--   33181  Dalaran_CrystalBall_01.mdx         0.72yd  a crystal ball
+--     100  Candle01.mdx                       0.53yd  plain, unmistakably a prop
+--
+-- Collision is turned off in code rather than here: SummonHandle calls
+-- SetGoState(GO_STATE_ACTIVE), and UpdateCollisionState only enables a
+-- non-chest model while the state is GO_STATE_READY. Choosing solid geometry to
+-- get a quiet model means inheriting a collision box that would block the
+-- doorway the handle is floating in, so the two changes belong together.
+--
+-- size 1.5 rather than 1: 0.76 yards is small to hit with a mouse when it is
+-- floating over a table you are also trying to click past.
+
+UPDATE gameobject_template SET displayId = 3511, size = 1.5 WHERE entry = 100010;
