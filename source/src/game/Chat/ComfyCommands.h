@@ -30,6 +30,7 @@ struct ComfyCommands
     static bool HandleSetSpeedCommand(ChatHandler* handler, char* args);
     static bool HandleLevelCapCommand(ChatHandler* handler, char* args);
     static bool HandleLootLuckCommand(ChatHandler* handler, char* args);
+    static bool HandleLootRatesCommand(ChatHandler* handler, char* args);
     static bool HandleFlightModeCommand(ChatHandler* handler, char* args);
     static bool HandleEffectCommand(ChatHandler* handler, char* args);
     static bool HandleEmoteCommand(ChatHandler* handler, char* args);
@@ -50,6 +51,9 @@ struct ComfyCommands
 
     // Commands/ObjCommands.cpp
     static bool HandleObjCommand(ChatHandler* handler, char* args);
+
+    // Chat/SoundLog.cpp
+    static bool HandleSoundLogCommand(ChatHandler* handler, char* args);
 
     // Handlers/MiscHandler.cpp, beside the bug-report code it shares with
     // CMSG_BUG rather than beside the other chat commands.

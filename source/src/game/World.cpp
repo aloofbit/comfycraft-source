@@ -104,6 +104,7 @@
 #include "PerformanceMonitor.h"
 #include "LevelCap.h"
 #include "LootLuck.h"
+#include "LootRates.h"
 #include "DungeonRun.h"
 
 #include <filesystem>
@@ -2353,6 +2354,9 @@ void LoadPlayerEggLoot();
     sLog.outString("Loading loot luck...");
     if (LootLuck::Load())
         sLog.outString(">> Loot luck: PRD on quest drops is on.");
+    sLog.outString("Loading loot rates...");
+    if (!LootRates::Load())
+        sLog.outString(">> Loot rates: from mangosd.conf (`loot_rates` is missing; apply sql/custom/183_loot_rates.sql).");
     sLog.outString("Loading dungeon run tables...");
     DungeonRun::Load();
     sLog.outString("Loading creature movement scripts...");

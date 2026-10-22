@@ -14,6 +14,7 @@
 #include "Moonstones.h"
 #include "LevelCap.h"
 #include "LootLuck.h"
+#include "LootRates.h"
 #include "BotNpc.h"
 #include "Common.h"
 #include "Config/Config.h"
@@ -267,6 +268,7 @@ bool ChatHandler::HandleReloadConfigCommand(char* /*args*/)
 {
     sWorld.LoadConfigSettings(true);
     sAnticheatLib->Reload();
+    LootRates::Load();                                  // the conf keys, when tw_char.loot_rates is missing
     SendSysMessage("World config settings reloaded.");
     return true;
 }
@@ -4072,6 +4074,16 @@ bool ComfyCommands::HandleLootLuckCommand(ChatHandler* handler, char* args)
     LootLuck::Counts(players, items);
     handler->PSendSysMessage("Loot luck: PRD %s, log %s. Miss counts: %u items, %u players.",
         LootLuck::Enabled() ? "on" : "off", LootLuck::Logging() ? "on" : "off", items, players);
+    return true;
+}
+
+// The gear drop rates (LootRates.h). Re-reads tw_char.loot_rates, which is
+// what the website sends after it writes the row, and shows the rates.
+bool ComfyCommands::HandleLootRatesCommand(ChatHandler* handler, char* /*args*/)
+{
+    bool const fromTable = LootRates::Load();
+    handler->PSendSysMessage("Loot rates (%s): green gear x%g, blue world drops x%g, from level 50 x%g.",
+        fromTable ? "loot_rates" : "mangosd.conf", LootRates::Green(), LootRates::Rare(false), LootRates::Rare(true));
     return true;
 }
 
@@ -15403,7 +15415,9 @@ namespace
         { "setspeed",          ".setspeed <rate> [name]   walk, run and swim speed, 1 is normal, until the next login" },
         { "levelcap",          ".levelcap [level]   the level XP stops at, or set it (0 is none)" },
         { "lootluck",          ".lootluck [on | off | log on | log off]   bad-luck protection on quest drops, or set it" },
+        { "lootrates",         ".lootrates   re-read the gear drop rates and show them" },
         { "flightmode",        ".flightmode [on | off]   whether GM flight is on, or set it" },
+        { "soundlog",          ".soundlog [on | off]   a chat line for each sound the server sends you, with its source" },
         { "companions",        ".companions   name your companions" },
         { "hire",              ".hire tank | healer | dps [class [spec]], .hire dismiss   a companion at your level, as Elowen hires" },
         { "cc",                ".cc attack | pull | follow | stay | flee | summon   an order to the companions in your group, with nothing in chat; .cc aggro | defend | mode   whether they wait for a pull to arrive" },

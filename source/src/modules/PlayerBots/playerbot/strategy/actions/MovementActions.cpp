@@ -3603,6 +3603,56 @@ bool MoveOutOfEnemyContactAction::isUseful()
     return MovementAction::isUseful() && AI_VALUE2(bool, "inside target", "current target");
 }
 
+// To the ring spot round the master when there is one: it is 10 yd from every
+// mob in the fight. Else straight away from the mob, to 6 yd past its reach.
+bool StepOutOfReachAction::Execute(Event& event)
+{
+    Unit* mob = RootedAttackerInReach(ai);
+    if (!mob)
+        return false;
+
+    const bool explain = ai->HasStrategy("debug action", BotState::BOT_STATE_NON_COMBAT) && ai->GetMaster();
+    auto where = [&](const std::string& text)
+    {
+        if (explain)
+            ai->TellPlayerNoFacing(ai->GetMaster(), "step: " + text,
+                PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, true, false);
+    };
+
+    float rx, ry, rz;
+    std::string note;
+    if (FindMasterRingSpot(ai, rx, ry, rz, note))
+    {
+        where("away from rooted " + std::string(mob->GetName()) + ", to a spot " + note);
+        return MoveTo(bot->GetMapId(), rx, ry, rz, false, false, false, true);
+    }
+
+    const float angle = mob->GetAngle(bot);
+    const float dist = mob->GetCombatReach() + bot->GetCombatReach() + ATTACK_DISTANCE + 6.0f;
+    float x = mob->GetPositionX() + cos(angle) * dist;
+    float y = mob->GetPositionY() + sin(angle) * dist;
+    float z = bot->GetPositionZ() + CONTACT_DISTANCE;
+    bot->UpdateAllowedPositionZ(x, y, z);
+
+    PathFinder path(bot);
+    path.calculate(x, y, z, false);
+    if ((path.getPathType() & (PATHFIND_NOPATH | PATHFIND_INCOMPLETE)) ||
+        !mob->IsWithinLOS(x, y, z + bot->GetCollisionHeight(), true))
+    {
+        where("no spot away from rooted " + std::string(mob->GetName()) + ", staying");
+        AI_VALUE(LastMovement&, "last movement").lastNoFleePoint = time(nullptr);
+        return false;
+    }
+
+    where("straight away from rooted " + std::string(mob->GetName()));
+    return MoveTo(bot->GetMapId(), x, y, z, false, false, false, true);
+}
+
+bool StepOutOfReachAction::isUseful()
+{
+    return MovementAction::isUseful() && RootedAttackerInReach(ai) != nullptr;
+}
+
 bool SetFacingTargetAction::Execute(Event& event)
 {
     Unit* target = AI_VALUE(Unit*, "current target");

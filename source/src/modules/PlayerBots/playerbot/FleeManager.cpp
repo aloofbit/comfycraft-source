@@ -181,6 +181,45 @@ bool ai::FindMasterRingSpot(PlayerbotAI* ai, float& rx, float& ry, float& rz, st
     return false;
 }
 
+// A STEP AWAY FROM A ROOTED MOB (2026-10-22).
+//
+// A mob held by Frost Nova, Frostbite or Entangling Roots cannot follow, so a
+// ranged bot it hits can step out of its reach and keep casting. The flee does
+// not do it: a bot led by a player with a mob on it stays and fights
+// (MovementAction::Flee), which is right for a mob that can chase.
+Unit* ai::RootedAttackerInReach(PlayerbotAI* ai)
+{
+    Player* bot = ai->GetBot();
+    if (!ai->IsRanged(bot) && !PlayerbotAI::IsHeal(bot))
+        return nullptr;
+
+    for (Unit* attacker : bot->getAttackers())
+    {
+        if (!attacker || !sServerFacade.IsAlive(attacker) || attacker->GetVictim() != bot)
+            continue;
+
+        if (!attacker->IsInRoots())
+            continue;
+
+        // A caster hits as hard from range, so a step buys nothing.
+        if (attacker->IsNonMeleeSpellCasted(false))
+            continue;
+
+        // Not when the root ends before the bot is out. -1 is no end.
+        bool lasts = false;
+        for (Aura* aura : attacker->GetAurasByType(SPELL_AURA_MOD_ROOT))
+            lasts = lasts || aura->GetAuraDuration() < 0 || aura->GetAuraDuration() >= 1500;
+        if (!lasts)
+            continue;
+
+        // Inside its reach, with 2 yd to spare.
+        if (attacker->CanReachWithMeleeAutoAttack(bot, 2.0f))
+            return attacker;
+    }
+
+    return nullptr;
+}
+
 bool intersectsOri(float angle, std::list<float>& angles, float angleIncrement)
 {
     for (std::list<float>::iterator i = angles.begin(); i != angles.end(); ++i)

@@ -3467,7 +3467,8 @@ void ParseTooltip(SpellEntry* entry)
 // ComfyCraft: spells that may be cast indoors. Spell.dbc marks them outdoors
 // only. patches/build-patch-v.js clears the same bit in the client's copy, or
 // the client refuses the cast before the server sees it. Keep the two lists
-// the same.
+// the same. Nature's Grasp also carries SPELL_ATTR_EX3_ONLY_PROC_OUTDOORS, which
+// stops its roots indoors. Only the server checks procs, so the client keeps it.
 static void ClearComfyOutdoorsOnly(SpellEntryMap& spells)
 {
     static uint32 const ids[] =
@@ -3477,7 +3478,10 @@ static void ClearComfyOutdoorsOnly(SpellEntryMap& spells)
     };
     for (uint32 id : ids)
         if (id < spells.size() && spells[id])
+        {
             spells[id]->Attributes &= ~SPELL_ATTR_OUTDOORS_ONLY;
+            spells[id]->AttributesEx3 &= ~SPELL_ATTR_EX3_ONLY_PROC_OUTDOORS;
+        }
 }
 
 // ComfyCraft: reagent-free copies of enchants, cast by the Rune Chip scrolls
@@ -3525,6 +3529,10 @@ static void AddComfyReagentFreeCopies(SpellEntryMap& spells)
             copy->Reagent[i] = 0;
             copy->ReagentCount[i] = 0;
         }
+        // 13419's DBC row says weapon (class 2). Item::IsFitToSpellRequirements
+        // lets 13419 onto a cloak by its id, which the copy does not share.
+        if (realId == 13419)
+            copy->EquippedItemClass = ITEM_CLASS_ARMOR;
         copy->InitCachedValues();
 
         if (copyId >= spells.size())

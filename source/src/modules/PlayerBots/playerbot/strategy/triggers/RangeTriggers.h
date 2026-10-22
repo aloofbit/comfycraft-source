@@ -259,6 +259,23 @@ namespace ai
         bool enemyTargetsBot;
     };
 
+    // A rooted mob hits this bot from inside its reach (RootedAttackerInReach).
+    // Off for 5 s after a step found no spot, the same wait as the flee.
+    class RootedAttackerInReachTrigger : public Trigger
+    {
+    public:
+        RootedAttackerInReachTrigger(PlayerbotAI* ai) : Trigger(ai, "rooted attacker in reach") {}
+
+        bool IsActive() override
+        {
+            const time_t noPoint = AI_VALUE(LastMovement&, "last movement").lastNoFleePoint;
+            if (noPoint && time(nullptr) - noPoint < 5)
+                return false;
+
+            return RootedAttackerInReach(ai) != nullptr;
+        }
+    };
+
     class EnemyIsCloseTrigger : public EnemyInRangeTrigger
     {
     public:

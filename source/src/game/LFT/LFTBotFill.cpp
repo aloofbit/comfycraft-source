@@ -602,6 +602,10 @@ void LFTManager::AcceptOffersForFillBots()
 
 void LFTManager::UpdateBotFill(uint32 diff)
 {
+    // Before the switch: a companion queued with its owner's party is not a
+    // fill bot, and its offer expired unanswered with bot fill off.
+    AcceptOffersForFillBots();
+
     if (!sWorld.getConfig(CONFIG_BOOL_LFT_BOTFILL_ENABLE))
     {
         if (!m_fillBots.empty())
@@ -609,8 +613,6 @@ void LFTManager::UpdateBotFill(uint32 diff)
 
         return;
     }
-
-    AcceptOffersForFillBots();
 
     if (m_botFillTimer > diff)
     {

@@ -605,6 +605,18 @@ void ReputationMgr::ApplyFactionlessPeace()
         // The stored flag is re-applied verbatim by LoadFromDB above, so clearing
         // it in the database alone does not hold. Clear it here, after the load.
         SetAtWar(&state, false);
+
+        // Lock the peace the way a race's own capitals are locked: the client greys
+        // out the At War checkbox and SetAtWar refuses. Without it a stray click in
+        // the reputation pane turned every Stormwind NPC red for a Tauren (bug 79).
+        // The bit is saved, but LoadFromDB ignores it, so this is re-applied
+        // at every login and goes away with Factionless.Enable = 0.
+        if (!(state.Flags & FACTION_FLAG_PEACE_FORCED))
+        {
+            state.Flags |= FACTION_FLAG_PEACE_FORCED;
+            state.needSend = true;
+            state.needSave = true;
+        }
     }
 }
 

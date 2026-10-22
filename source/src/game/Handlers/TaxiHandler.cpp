@@ -151,16 +151,17 @@ bool WorldSession::SendLearnNewTaxiNode(Creature* unit)
         update << uint8(1);
         SendPacket(&update);
 
+        // Node ids are the 1.18 numbering, as in PlayerTaxi::LoadTaxiMask.
         if (curloc == 18) // Booty Bay, Horde
-            GetPlayer()->m_taxi.SetTaximaskNode(183); // Gilijim
+            GetPlayer()->m_taxi.SetTaximaskNode(96); // Gillijim
         else if (curloc == 19) // Booty Bay, Alliance
-            GetPlayer()->m_taxi.SetTaximaskNode(182); // Lapidis
-        else if (curloc == 7)  // Menethil Harbor 
-            GetPlayer()->m_taxi.SetTaximaskNode(175); // Hawk's Vigi
-        else if (curloc == 6)  // Ironforge 
-            GetPlayer()->m_taxi.SetTaximaskNode(176); // Ironforge Airfields
+            GetPlayer()->m_taxi.SetTaximaskNode(95); // Lapidis
+        else if (curloc == 7)  // Menethil Harbor
+            GetPlayer()->m_taxi.SetTaximaskNode(92); // Dun Agrath
+        else if (curloc == 6)  // Ironforge
+            GetPlayer()->m_taxi.SetTaximaskNode(93); // Ironforge Airfields
         else if (curloc == 39 || curloc == 40)  // Tanaris
-            GetPlayer()->m_taxi.SetTaximaskNode(185); // Tel'Abim
+            GetPlayer()->m_taxi.SetTaximaskNode(98); // Tel'Abim
 
         return true;
     }

@@ -2787,8 +2787,8 @@ void PlayerbotAI::DoNextAction(bool min)
         // behind until the 100 yd teleport below fetched it, which looked jumpy.
         // When the owner mounts, out of combat, the companion is picked up: it
         // stops, turns invisible, its pet is put away, and it is moved to the owner
-        // unseen, at most every 2 s. When the owner dismounts, a fight starts or
-        // the maps differ, it is put down next to the owner and shows once that
+        // unseen, at most every 2 s. When the owner dismounts or the maps
+        // differ, it is put down next to the owner and shows once that
         // teleport has landed. No action runs while it is picked up.
         if (showAfterRide && !bot->IsBeingTeleported())
         {
@@ -2798,14 +2798,16 @@ void PlayerbotAI::DoNextAction(bool min)
         }
 
         // A flight path counts: the companion stays where it was picked up and is
-        // put down at the landing.
+        // put down at the landing. A fight puts it down only when the owner
+        // dismounts (2026-10-21, the owner's request): a mob that hits a rider
+        // used to bring the whole party out while the owner rode on.
         const bool ownerRiding = master->IsInWorld() && (master->IsMounted() || master->IsTaxiFlying()) &&
             !bot->IsTaxiFlying() && !master->IsBeingTeleported() && bot->GetMapId() == master->GetMapId() &&
-            sServerFacade.IsAlive(master) && sServerFacade.IsAlive(bot) &&
-            !sServerFacade.IsInCombat(master) && !sServerFacade.IsInCombat(bot) && !master->InBattleGround() &&
+            sServerFacade.IsAlive(master) && sServerFacade.IsAlive(bot) && !master->InBattleGround() &&
             !HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT) && !HasStrategy("guard", BotState::BOT_STATE_NON_COMBAT);
+        const bool outOfCombat = !sServerFacade.IsInCombat(master) && !sServerFacade.IsInCombat(bot);
 
-        if (ownerRiding && !hiddenRide && !showAfterRide)
+        if (ownerRiding && outOfCombat && !hiddenRide && !showAfterRide)
         {
             StopMoving();
             bot->UnsummonPetTemporaryIfAny();

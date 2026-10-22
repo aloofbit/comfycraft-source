@@ -66,24 +66,26 @@ bool HighManaTrigger::IsActive()
     if (!alreadyDrinking && ai->BuffedWithin(3))
         return false;
 
-    // WHO IS DRINKING MATTERS MORE THAN THE NUMBER.
+    // TWO NUMBERS, BECAUSE THIS TRIGGER IS BOTH THE START AND THE STOP.
     //
-    // DrinkAtMana (95 then, 90 now) and the config comment defends that for the case it was
-    // written for: "a healer that starts a pull two thirds full runs dry before
-    // it ends". True of healers, and only of healers. Applied to a mage it meant
-    // sitting down after almost every sheep, which is not restoring mana so much
-    // as being unavailable - and out-of-combat is exactly when a pull is being
-    // set up, so the group waited on a mage drinking off the last 5%.
+    // It is asked every tick while the bot drinks, so whatever it returns false
+    // at is where drinking ENDS. A single "drink below 50" therefore does not
+    // mean "wait until 50 and then fill up", it means "drink from 49 to 50 and
+    // stand". Shipped that way for one build on 2026-09-07: the mage lived
+    // between 30 and 50, MediumMana is 40, and below that casters drop their
+    // real rotation for the wand.
     //
-    // A healer also drinks through a pull. The pull hold below is for bots
-    // that must walk somewhere when the pull lands; a healer waits at the
-    // anchor, and its mana is what the fight runs on. HealerKeepsDrinking
-    // keeps it seated when the fight starts.
-    // Below DrinkAtMana to sit; once sitting, to full, like the 50/90 pair below.
+    // So: sit below DrinkAtMana, and once sitting, drink to full. Every caster
+    // since 2026-10-21; before that a non-healer waited for 50%, and a mage at
+    // 51% went into the next pull without a drink.
+    const bool wantsDrink = alreadyDrinking ? (mana < 100) : (mana < sPlayerbotAIConfig.drinkAtMana);
+
+    // A healer drinks through a pull. The pull hold below is for bots that must
+    // walk somewhere when the pull lands; a healer waits at the anchor, and its
+    // mana is what the fight runs on. HealerKeepsDrinking keeps it seated when
+    // the fight starts.
     if (PlayerbotAI::IsHeal(bot))
-    {
-        return alreadyDrinking ? (mana < 100) : (mana < sPlayerbotAIConfig.drinkAtMana);
-    }
+        return wantsDrink;
 
     if (GroupIsPulling(ai))
         return false;
@@ -93,20 +95,7 @@ bool HighManaTrigger::IsActive()
     if (!alreadyDrinking && GroupInCombat(ai, bot))
         return false;
 
-    // TWO NUMBERS, BECAUSE THIS TRIGGER IS BOTH THE START AND THE STOP.
-    //
-    // It is asked every tick while the bot drinks, so whatever it returns false
-    // at is where drinking ENDS. A single "drink below 50" therefore does not
-    // mean "wait until 50 and then fill up", it means "drink from 49 to 50 and
-    // stand". Shipped that way for one build on 2026-09-07 and it was worse
-    // than the problem it fixed: the mage lived between 30 and 50, MediumMana
-    // is 40, and below that casters drop their real rotation for the wand. The
-    // report was "DPS is just trying to use wand", which was mana, not spec.
-    //
-    // So: do not sit down before half, and once sitting, finish the job. The
-    // ceiling is short of full on purpose - the last few percent take as long
-    // as the rest and nobody is waiting on them.
-    return alreadyDrinking ? (mana < 90) : (mana < 50);
+    return wantsDrink;
 }
 
 // The eating counterpart. It exists because "low health" could not be used:

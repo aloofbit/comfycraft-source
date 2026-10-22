@@ -37,6 +37,7 @@
 #include "Group.h"
 #include "LFGHandler.h"
 #include "LFGMgr.h"
+#include "LFTMgr.h"
 
 void WorldSession::HandleMeetingStoneJoinOpcode(WorldPacket& recv_data)
 {
@@ -87,7 +88,10 @@ void WorldSession::HandleMeetingStoneJoinOpcode(WorldPacket& recv_data)
 
    GameObjectInfo const* gInfo = sObjectMgr.GetGameObjectInfo(obj->GetEntry());
 
-   sLFGMgr.AddToQueue(_player, gInfo->meetingstone.areaID);
+   // The stone queues for the group finder, not the 1.12 meeting stone queue.
+   // That queue has no window: it only says "still seeking more members"
+   // every 5 minutes until the party is full.
+   sLFTMgr.JoinFromMeetingStone(_player, gInfo->meetingstone.areaID);
 }
 
 void WorldSession::HandleMeetingStoneLeaveOpcode(WorldPacket& /*recv_data*/)

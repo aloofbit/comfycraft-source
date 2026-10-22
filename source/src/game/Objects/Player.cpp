@@ -365,13 +365,14 @@ void PlayerTaxi::LoadTaxiMask(const char* data)
         m_taximask[index] = sTaxiNodesMask[index] & uint32(atol((*iter).c_str()));
     }
 
-    // Temporary (we all know it's a lie) hack to open joined nodes for new players:
-    if (IsTaximaskNodeKnown(18) && !IsTaximaskNodeKnown(183)) SetTaximaskNode(183); // Gilijim
-    if (IsTaximaskNodeKnown(19) && !IsTaximaskNodeKnown(182)) SetTaximaskNode(182); // Lapidis
-    if (IsTaximaskNodeKnown(7)  && !IsTaximaskNodeKnown(175)) SetTaximaskNode(175); // Hawk's Vigil
-    if (IsTaximaskNodeKnown(6)  && !IsTaximaskNodeKnown(176)) SetTaximaskNode(176); // Ironforge Airfields
-    if (IsTaximaskNodeKnown(39) && !IsTaximaskNodeKnown(185)) SetTaximaskNode(185); // Tel'Abim, Alliance
-    if (IsTaximaskNodeKnown(40) && !IsTaximaskNodeKnown(185)) SetTaximaskNode(185); // Tel'Abim, Horde
+    // Temporary (we all know it's a lie) hack to open joined nodes for new players.
+    // Node ids are the 1.18 TaxiNodes.dbc numbering (upstream renumbered in 20260513084003_world.sql).
+    if (IsTaximaskNodeKnown(18) && !IsTaximaskNodeKnown(96)) SetTaximaskNode(96); // Gillijim
+    if (IsTaximaskNodeKnown(19) && !IsTaximaskNodeKnown(95)) SetTaximaskNode(95); // Lapidis
+    if (IsTaximaskNodeKnown(7)  && !IsTaximaskNodeKnown(92)) SetTaximaskNode(92); // Dun Agrath
+    if (IsTaximaskNodeKnown(6)  && !IsTaximaskNodeKnown(93)) SetTaximaskNode(93); // Ironforge Airfields
+    if (IsTaximaskNodeKnown(39) && !IsTaximaskNodeKnown(98)) SetTaximaskNode(98); // Tel'Abim, Alliance
+    if (IsTaximaskNodeKnown(40) && !IsTaximaskNodeKnown(98)) SetTaximaskNode(98); // Tel'Abim, Horde
 }
 
 void PlayerTaxi::AppendTaximaskTo(ByteBuffer& data, bool all)
@@ -5113,6 +5114,9 @@ void Player::UpdateResetTalentsMultiplier() const
     }
 }
 
+static uint32 const RespecCosts[] = { 0, 5 * SILVER, 10 * SILVER, 20 * SILVER, 40 * SILVER, 1 * GOLD };
+static uint32 const RESPEC_COST_STEPS = sizeof(RespecCosts) / sizeof(RespecCosts[0]);
+
 uint32 Player::GetResetTalentsCost() const
 {
     auto freeRespecs = GetPlayerVariable(PlayerVariables::FreeTalentResets);
@@ -5133,23 +5137,12 @@ uint32 Player::GetResetTalentsCost() const
     if (free)
         return 0;
 
-    // Decay respec cost
-    UpdateResetTalentsMultiplier();
+    // Turtle's scale. m_resetTalentsMultiplier counts paid resets and stops at
+    // the last step; it never decays, so the Rate.Respec* settings are unused.
+    if (m_resetTalentsMultiplier >= RESPEC_COST_STEPS)
+        return RespecCosts[RESPEC_COST_STEPS - 1];
 
-    if (!m_resetTalentsMultiplier) // initial respec
-    {
-        return sWorld.getConfig(CONFIG_UINT32_RESPEC_BASE_COST) * GOLD;
-    }
-
-    uint32 multiCost = sWorld.getConfig(CONFIG_UINT32_RESPEC_MULTIPLICATIVE_COST);
-    uint32 maxMulti = sWorld.getConfig(CONFIG_UINT32_RESPEC_MAX_MULTIPLIER);
-
-    if (m_resetTalentsMultiplier > maxMulti)
-    {
-        return (multiCost * maxMulti) * GOLD;
-    }
-
-    return (m_resetTalentsMultiplier * multiCost) * GOLD;
+    return RespecCosts[m_resetTalentsMultiplier];
 }
 
 bool Player::ResetTalents(bool no_cost)
@@ -5241,12 +5234,8 @@ bool Player::ResetTalents(bool no_cost)
     {
         ModifyMoney(-(int32)uiCost);
 
-        ++m_resetTalentsMultiplier;
-
-        if (m_resetTalentsMultiplier > sWorld.getConfig(CONFIG_UINT32_RESPEC_MAX_MULTIPLIER))
-        {
-            m_resetTalentsMultiplier = sWorld.getConfig(CONFIG_UINT32_RESPEC_MAX_MULTIPLIER);
-        }
+        if (m_resetTalentsMultiplier < RESPEC_COST_STEPS - 1)
+            ++m_resetTalentsMultiplier;
 
         m_resetTalentsTime = time(nullptr);
     }

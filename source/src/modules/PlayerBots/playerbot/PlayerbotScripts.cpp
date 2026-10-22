@@ -325,6 +325,16 @@ class PlayerbotPlayerScript : public PlayerScript
             return !IsRealPlayer(player);
         }
 
+        // A companion gets no XP in a dungeon or a raid: kills, quests, all of
+        // it. Player::GiveXP returns on a zero amount before it sends the XP
+        // log, so XpGainAction's bonus never runs either.
+        void OnGiveXP(Player* player, uint32& amount, Unit* /*victim*/) override
+        {
+            if (player && player->GetMap() && player->GetMap()->IsDungeon() &&
+                CompanionOwnership::IsCompanion(player->GetGUIDLow()))
+                amount = 0;
+        }
+
         // Was Player::UpdatePlayerbotHooks(diff).
         void OnUpdate(Player* player, uint32 diff) override
         {

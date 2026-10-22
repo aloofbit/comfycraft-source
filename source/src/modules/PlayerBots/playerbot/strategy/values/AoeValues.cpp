@@ -1,6 +1,7 @@
 
 #include "playerbot/playerbot.h"
 #include "AoeValues.h"
+#include "PossibleAttackTargetsValue.h"
 
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/ServerFacade.h"
@@ -14,7 +15,15 @@ std::list<ObjectGuid> AoeCountValue::FindMaxDensity(Player* bot, float range)
     if (bot)
     {
         std::list<ObjectGuid> units = *GetBotAI(bot)->GetAiObjectContext()->GetValue<std::list<ObjectGuid>>("attackers");
-        
+
+        // A sheep is not part of the pack: counted, it made the pack big enough
+        // for Flamestrike, which the cast check then refused (2026-10-22).
+        units.remove_if([bot](const ObjectGuid& guid)
+        {
+            Unit* unit = GetBotAI(bot)->GetUnit(guid);
+            return unit && PossibleAttackTargetsValue::HasDamageBreakableCC(unit);
+        });
+
         for (std::list<ObjectGuid>::iterator i = units.begin(); i != units.end(); ++i)
         {
             Unit* unit = GetBotAI(bot)->GetUnit(*i);

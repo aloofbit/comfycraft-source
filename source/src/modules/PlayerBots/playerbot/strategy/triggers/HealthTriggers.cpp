@@ -1,6 +1,7 @@
 
 #include "playerbot/playerbot.h"
 #include "HealthTriggers.h"
+#include "playerbot/strategy/generic/UseFoodStrategy.h"
 
 using namespace ai;
 
@@ -62,10 +63,15 @@ bool PartyMemberAlmostFullHealthTrigger::IsActive()
     return PartyMemberLowHealthTrigger::IsActive();
 }
 
-// The same mana floor as the top-up tiers.
+// The same mana floor as the top-up tiers. A healer seated with a drink keeps
+// drinking: a Renew at 99 percent is not worth the meal. Below almostFullHealth
+// the tiers under this one fire, and the heal stands it up.
 bool PartyMemberAnyHealthLostTrigger::IsActive()
 {
     if (AI_VALUE2(uint8, "mana", "self target") < sPlayerbotAIConfig.mediumMana)
+        return false;
+
+    if (HealerKeepsDrinking(ai))
         return false;
 
     return PartyMemberLowHealthTrigger::IsActive();

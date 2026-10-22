@@ -143,7 +143,16 @@ void WorldSession::HandleUseItemOpcode(WorldPacket& recvPacket)
     }
     else if (pUser->IsShapeShifted())
     {
-        if (!(bagIndex == INVENTORY_SLOT_BAG_0 && slot < EQUIPMENT_SLOT_END))
+        // ComfyCraft: a druid in form may drink a potion. Potions are the items
+        // in spell category 4, the shared potion cooldown. Healthstones and
+        // bandages have their own categories and stay refused.
+        bool druidPotion = false;
+        if (pUser->GetClass() == CLASS_DRUID)
+            for (const auto& itr : proto->Spells)
+                if (itr.SpellCategory == 4)
+                    druidPotion = true;
+
+        if (!(bagIndex == INVENTORY_SLOT_BAG_0 && slot < EQUIPMENT_SLOT_END) && !druidPotion)
         {
             itemCastCheckResult = SPELL_FAILED_NO_ITEMS_WHILE_SHAPESHIFTED;
         }

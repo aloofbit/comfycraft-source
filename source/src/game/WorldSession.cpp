@@ -60,6 +60,7 @@
 #include "Anticheat/Warden/Warden.hpp"
 #include "Logging/DatabaseLogger.hpp"
 #include "LootLuck.h"
+#include "SoundLog.h"
 
 #ifdef USING_DISCORD_BOT
 #include "DiscordBot/Bot.hpp"
@@ -197,6 +198,9 @@ void WorldSession::SendPacket(WorldPacket const* packet)
         sLog.outInfo("[NETWORK] Packet %s size %u is too large. Not sent [Account %u Player %s]", LookupOpcodeName(packet->GetOpcode()), packet->size(), GetAccountId(), GetPlayerName());
         return;
     }
+
+    if (SoundLog::Active())
+        SoundLog::OnSend(this, *packet);
 
     if (sWorld.m_collectPacketStats)
     {

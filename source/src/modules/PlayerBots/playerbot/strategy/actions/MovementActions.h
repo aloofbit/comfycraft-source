@@ -196,6 +196,16 @@ namespace ai
         virtual bool isUseful() override;
     };
 
+    // A ranged bot steps out of reach of a rooted mob that hits it
+    // (RootedAttackerInReach).
+    class StepOutOfReachAction : public MovementAction
+    {
+    public:
+        StepOutOfReachAction(PlayerbotAI* ai) : MovementAction(ai, "step out of reach") {}
+        virtual bool Execute(Event& event) override;
+        virtual bool isUseful() override;
+    };
+
     class SetFacingTargetAction : public Action
     {
     public:

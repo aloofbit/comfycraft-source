@@ -2,8 +2,40 @@
 #include "playerbot/playerbot.h"
 #include "MageTriggers.h"
 #include "MageActions.h"
+#include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
 
 using namespace ai;
+
+// FROST NOVA IS FOR A MOB ON THE MAGE (2026-10-21).
+//
+// The trigger was "enemy ten yards": the mage's own target within 10 yd, with
+// nothing about who the mob hit. A tank that held its mob next to the mage met
+// that, so the mage rooted the tank's mob, and the nova's damage broke any
+// sheep in reach.
+Unit* ai::FrostNovaTarget(PlayerbotAI* ai)
+{
+    Player* bot = ai->GetBot();
+    const float radius = 10.0f;
+
+    Unit* hitsMe = nullptr;
+    for (Unit* attacker : bot->getAttackers())
+    {
+        if (attacker && attacker->IsAlive() && attacker->GetVictim() == bot && bot->IsWithinDistInMap(attacker, radius))
+        {
+            hitsMe = attacker;
+            break;
+        }
+    }
+
+    if (!hitsMe)
+        return nullptr;
+
+    // Search past the radius: a sheep walks about, and the nova lands later.
+    if (PossibleAttackTargetsValue::DamageBreakableCCNear(bot, bot->GetPositionX(), bot->GetPositionY(), radius + 5.0f))
+        return nullptr;
+
+    return hitsMe;
+}
 
 bool AnyMageArmorTrigger::IsActive()
 {

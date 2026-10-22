@@ -2,6 +2,7 @@
 #include "playerbot/playerbot.h"
 #include "XpGainAction.h"
 #include "playerbot/LootObjectStack.h"
+#include "playerbot/CompanionOwnership.h"
 #ifdef MANGOS
 #include "luaEngine.h"
 #endif
@@ -56,7 +57,10 @@ bool XpGainAction::Execute(Event& event)
         BroadcastHelper::BroadcastCreatureKill(ai, bot, creature);
     }
 
-    if (!sRandomPlayerbotMgr.IsFreeBot(bot) || sPlayerbotAIConfig.playerbotsXPrate == 1)
+    // A companion lives on a pool account, so it counts as a free bot. It
+    // levels at the player's rate, not at AiPlayerbot.XPRate.
+    if (!sRandomPlayerbotMgr.IsFreeBot(bot) || sPlayerbotAIConfig.playerbotsXPrate == 1 ||
+        CompanionOwnership::IsCompanion(bot->GetGUIDLow()))
         return false;
 
     if (!type)

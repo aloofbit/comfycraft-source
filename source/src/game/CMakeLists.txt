@@ -100,6 +100,7 @@ set (game_SRCS
     Chat/Chat.cpp
     Chat/AsyncCommandHandlers.cpp
     Chat/WhisperTargetLimits.cpp
+    Chat/SoundLog.cpp
     Commands/Commands.cpp
     Commands/ObjCommands.cpp
     Database/CharacterDatabaseCache.cpp
@@ -323,6 +324,7 @@ set (game_SRCS
     Chat/ComfyCommands.h
     Chat/AsyncCommandHandlers.h
     Chat/WhisperTargetLimits.h
+    Chat/SoundLog.h
     Commands/Nostalrius.h
     Database/CharacterDatabaseCache.h
     Database/CharacterDatabaseCleaner.h

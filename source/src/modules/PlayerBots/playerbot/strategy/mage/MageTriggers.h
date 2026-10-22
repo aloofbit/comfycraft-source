@@ -179,6 +179,18 @@ namespace ai
         }
     };
 
+    // A mob within Frost Nova's 10 yd that attacks the mage, or null. Also
+    // null when an enemy near the mage is held by crowd control that damage
+    // breaks. The trigger asks it, and the action casts at the mob it returns.
+    Unit* FrostNovaTarget(PlayerbotAI* ai);
+
+    class FrostNovaTrigger : public Trigger
+    {
+    public:
+        FrostNovaTrigger(PlayerbotAI* ai) : Trigger(ai, "frost nova") {}
+        bool IsActive() override { return FrostNovaTarget(ai) != nullptr; }
+    };
+
     class IceLanceTrigger : public Trigger
     {
     public:

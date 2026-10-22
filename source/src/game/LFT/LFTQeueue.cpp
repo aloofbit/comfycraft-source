@@ -58,6 +58,63 @@ namespace
 
         return 0;
     }
+
+    // A meeting stone's dungeon (gameobject data2, an AreaTable id) as finder
+    // instance codes, each with the lowest level the finder window lists it at.
+    // Codes and levels are copied from the client's FrameXML\LFT\LFT_Data.lua.
+    // The server only compares codes between queued players, so a misspelt one
+    // queues for a dungeon nobody else can join.
+    struct StoneInstance
+    {
+        uint32 areaId;
+        char const* code;
+        uint32 minLevel;
+    };
+
+    StoneInstance const StoneInstances[] =
+    {
+        {  133, "gnomer",       28 },
+        {  209, "sfk",          20 },
+        {  491, "rfk",          29 },
+        {  717, "stocks",       23 },
+        {  718, "wc",           16 },
+        {  719, "bfd",          22 },
+        {  722, "rfd",          35 },
+        {  796, "smgy",         30 },
+        {  796, "smlib",        32 },
+        {  796, "smarmory",     34 },
+        {  796, "smcath",       35 },
+        {  978, "zf",           42 },
+        { 1477, "st",           49 },
+        { 1517, "ulda",         41 },
+        { 1581, "dm",           16 },
+        { 1583, "lbrs",         55 },
+        { 1584, "brd",          54 },
+        { 1584, "brdarena",     50 },
+        { 1584, "brdemp",       54 },
+        { 1941, "cotbm",        60 },
+        { 2017, "stratud",      58 },
+        { 2017, "stratlive",    58 },
+        { 2057, "scholo",       58 },
+        { 2100, "maraorange",   43 },
+        { 2100, "marapurple",   45 },
+        { 2100, "maraprincess", 46 },
+        { 2437, "rfc",          13 },
+        { 2557, "dme",          55 },
+        { 2557, "dmn",          57 },
+        { 2557, "dmw",          57 },
+        { 2557, "dmt",          57 },
+        { 5077, "tcg",          33 },
+        { 5086, "kc",           60 },
+        { 5087, "swv",          60 },
+        { 5103, "hfq",          51 },
+        { 5208, "gilneas",      43 },
+        { 5601, "dmr",          26 },
+        { 5628, "swc",          32 },
+        { 5628, "swd",          35 },
+        { 5641, "windhorn",     25 },
+        { 5735, "fmh",          13 },
+    };
 }
 
 
@@ -84,6 +141,51 @@ void LFTManager::HandleQueueJoin(Player* player, std::vector<std::string> const&
     if (instances.empty() || !roleMask)
     {
         Send(player, "S2C_QUEUE_ERROR;invalid");
+        return;
+    }
+
+    CleanupPlayer(player->GetObjectGuid());
+    StartRolecheck(player, instances);
+}
+
+// The opcode handler has already refused a raid, a full party and a member who
+// is not the leader, with the client's own meeting stone messages. What is left
+// is the queue join the finder window would send, with the stone's dungeon as
+// the instance list and roles picked in the role check popup.
+void LFTManager::JoinFromMeetingStone(Player* player, uint32 areaId)
+{
+    if (!player)
+        return;
+
+    // The finder window lists a dungeon from its lowest level up, and goes by
+    // the lowest level in the party.
+    uint32 level = player->GetLevel();
+    for (ObjectGuid const& guid : GetPartyMembers(player))
+        if (Player* member = GetPlayer(guid))
+            level = std::min(level, member->GetLevel());
+
+    bool knownStone = false;
+    std::vector<std::string> instances;
+    for (StoneInstance const& stone : StoneInstances)
+    {
+        if (stone.areaId != areaId)
+            continue;
+
+        knownStone = true;
+        if (level >= stone.minLevel)
+            instances.push_back(stone.code);
+    }
+
+    if (!knownStone)
+    {
+        sLog.outError("LFT: meeting stone for area %u has no finder instance", areaId);
+        Send(player, "S2C_QUEUE_ERROR;invalid");
+        return;
+    }
+
+    if (instances.empty())
+    {
+        Send(player, "S2C_QUEUE_ERROR;requirements_level");
         return;
     }
 
@@ -270,11 +372,32 @@ void LFTManager::StartRolecheck(Player* leader, std::vector<std::string> const& 
     rolecheck.instances = instances;
     rolecheck.timer = LFT_ROLECHECK_TIMEOUT;
 
+    // A companion has no popup to answer, so a party with one timed out after
+    // 90 seconds. Answer for it with the roles its current spec can play.
+    for (ObjectGuid const& guid : rolecheck.members)
+    {
+        Player* member = GetPlayer(guid);
+        if (!member || !Script_IsAIControlled(member))
+            continue;
+
+        uint8 roleMask = AllowedRoleMask(member) & Script_GetAllowedRoles(member);
+        rolecheck.responses[guid] = roleMask ? roleMask : AllowedRoleMask(member);
+    }
+
+    if (rolecheck.responses.size() == rolecheck.members.size())
+    {
+        EnqueueRolecheck(rolecheck);
+        return;
+    }
+
     m_rolechecks[rolecheck.leaderGuid] = rolecheck;
 
     std::string joinedInstances = JoinStrings(instances, ':');
     for (ObjectGuid const& guid : rolecheck.members)
     {
+        if (rolecheck.responses.find(guid) != rolecheck.responses.end())
+            continue;
+
         if (Player* member = GetPlayer(guid))
         {
             Send(member, "S2C_ROLECHECK_START;" + joinedInstances);

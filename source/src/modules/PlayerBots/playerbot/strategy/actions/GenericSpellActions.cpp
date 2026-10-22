@@ -3,11 +3,100 @@
 #include "GenericActions.h"
 #include "UseItemAction.h"
 #include "playerbot/strategy/values/CcTargetValue.h"
+#include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
+#include "Database/DBCStores.h"
 
 #include <iomanip>
 #include <sstream>
 
 using namespace ai;
+
+// AN AREA SPELL DOES NOT LAND ON A SHEEP (2026-10-22).
+//
+// Flamestrike fell on polymorphed mobs: the AoE trigger counted the sheep, and
+// Blast Wave and Dragon's Breath queue Flamestrike straight after them without
+// the trigger. So the cast itself checks, for every class: a spell that damages
+// an area of enemies, or jumps between them, is not useful while an enemy
+// that damage would wake is within its radius (+2 yd) of where it lands.
+static bool IsEnemyAreaTarget(uint32 target)
+{
+    switch (target)
+    {
+        case TARGET_ENUM_UNITS_ENEMY_AOE_AT_SRC_LOC:
+        case TARGET_ENUM_UNITS_ENEMY_AOE_AT_DEST_LOC:
+        case TARGET_ENUM_UNITS_ENEMY_IN_CONE_24:
+        case TARGET_ENUM_UNITS_ENEMY_AOE_AT_DYNOBJ_LOC:
+        case TARGET_ENUM_UNITS_ENEMY_IN_CONE_54:
+            return true;
+        default:
+            return false;
+    }
+}
+
+// Only damage wakes a sheep. Demoralizing Shout, Challenging Shout and Psychic
+// Scream are harmful area spells with no damage, and stay usable.
+static bool IsDamageEffect(SpellEntry const* spell, uint32 i)
+{
+    switch (spell->Effect[i])
+    {
+        case SPELL_EFFECT_SCHOOL_DAMAGE:
+        case SPELL_EFFECT_HEALTH_LEECH:
+        case SPELL_EFFECT_WEAPON_DAMAGE_NOSCHOOL:
+        case SPELL_EFFECT_WEAPON_PERCENT_DAMAGE:
+        case SPELL_EFFECT_WEAPON_DAMAGE:
+        case SPELL_EFFECT_NORMALIZED_WEAPON_DMG:
+            return true;
+        case SPELL_EFFECT_APPLY_AURA:
+        case SPELL_EFFECT_PERSISTENT_AREA_AURA:
+            switch (spell->EffectApplyAuraName[i])
+            {
+                case SPELL_AURA_PERIODIC_DAMAGE:
+                case SPELL_AURA_PERIODIC_LEECH:
+                case SPELL_AURA_PERIODIC_DAMAGE_PERCENT:
+                // Volley and the like: the triggered spell does the damage.
+                case SPELL_AURA_PERIODIC_TRIGGER_SPELL:
+                    return true;
+                default:
+                    return false;
+            }
+        default:
+            return false;
+    }
+}
+
+// 0 for a spell that damages one enemy. A chain spell counts as 10 yd.
+static float EnemyAreaRadius(SpellEntry const* spell)
+{
+    float radius = 0.0f;
+    for (uint32 i = 0; i < MAX_EFFECT_INDEX; ++i)
+    {
+        if (!IsDamageEffect(spell, i))
+            continue;
+
+        if (IsEnemyAreaTarget(spell->EffectImplicitTargetA[i]) || IsEnemyAreaTarget(spell->EffectImplicitTargetB[i]))
+            radius = std::max(radius, Spells::GetSpellRadius(sSpellRadiusStore.LookupEntry(spell->EffectRadiusIndex[i])));
+        else if (spell->EffectChainTarget[i] > 1)
+            radius = std::max(radius, 10.0f);
+    }
+
+    return radius;
+}
+
+// A self-range spell (Arcane Explosion, Cone of Cold, Holy Nova) lands round
+// the caster; any other lands round its target (Flamestrike, Blizzard).
+static bool LandsOnBreakableCc(Player* bot, uint32 spellId, Unit* target)
+{
+    SpellEntry const* spell = sServerFacade.LookupSpellInfo(spellId);
+    if (!spell || spell->IsPositiveSpell())
+        return false;
+
+    const float radius = EnemyAreaRadius(spell);
+    if (radius <= 0.0f)
+        return false;
+
+    WorldObject* centre = spell->rangeIndex == SPELL_RANGE_IDX_SELF_ONLY ? static_cast<WorldObject*>(bot) : target;
+    return PossibleAttackTargetsValue::DamageBreakableCCNear(bot, centre->GetPositionX(), centre->GetPositionY(), radius + 2.0f);
+}
 
 CastSpellAction::CastSpellAction(PlayerbotAI* ai, std::string spell)
 : Action(ai, spell)
@@ -215,6 +304,9 @@ bool CastSpellAction::isUseful()
         return false;
 
     if (!spellTarget->IsInWorld() || spellTarget->GetMapId() != bot->GetMapId())
+        return false;
+
+    if (LandsOnBreakableCc(bot, GetSpellID(), spellTarget))
         return false;
 
     return true;

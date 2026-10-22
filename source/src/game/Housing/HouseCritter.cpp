@@ -72,7 +72,8 @@ namespace
                                      | UNIT_FLAG_IMMUNE_TO_NPC;
 
     // Not every creature is a pet. type 8 is CREATURE_TYPE_CRITTER, which is
-    // the rabbits and cats and turtles and nothing else -- 129 templates here.
+    // the rabbits and cats and turtles and, since sql/custom/177, the
+    // companion pets -- 341 templates here.
     // A developer may place anything, because "put a cow in my house" is a
     // reasonable thing for the person building the feature to want.
     bool IsCritter(CreatureInfo const* info)
@@ -582,6 +583,14 @@ bool HouseMgr::PlaceCritter(Player* player, uint32 entry, float wander, std::str
     if (CountCritters(*house) >= HOUSE_MAX_CRITTERS)
     {
         error = "Your house is full of animals. Send one away first.";
+        return false;
+    }
+
+    // Players get animals from crates only. Without this, `.house critter add`
+    // placed any type 8 creature for free, the companion pets included.
+    if (!itemEntry && player->GetSession()->GetSecurity() < SEC_DEVELOPER)
+    {
+        error = "Animals come in crates. Critterkeeper Wren sells them.";
         return false;
     }
 

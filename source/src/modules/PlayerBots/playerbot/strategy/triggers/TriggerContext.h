@@ -126,6 +126,7 @@ namespace ai
             creators["enemy too close for shoot"] = [](PlayerbotAI* ai) { return new EnemyTooCloseForShootTrigger(ai); };
             creators["enemy too close for melee"] = [](PlayerbotAI* ai) { return new EnemyTooCloseForMeleeTrigger(ai); };
             creators["enemy is close"] = [](PlayerbotAI* ai) { return new EnemyIsCloseTrigger(ai); };
+            creators["rooted attacker in reach"] = [](PlayerbotAI* ai) { return new RootedAttackerInReachTrigger(ai); };
             creators["party member to heal out of spell range"] = [](PlayerbotAI* ai) { return new PartyMemberToHealOutOfSpellRangeTrigger(ai); };
             creators["enemy fifteen yards"] = [](PlayerbotAI* ai) { return new EnemyInRangeTrigger(ai, "enemy fifteen yards", 15.0f); };
             creators["enemy ten yards"] = [](PlayerbotAI* ai) { return new EnemyInRangeTrigger(ai, "enemy ten yards", 10.0f); };

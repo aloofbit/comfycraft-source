@@ -38,6 +38,7 @@ class LFTManager
         LFTManager();
 
         bool HandleAddonMessage(Player* player, uint32 type, std::string const& rawMessage);
+        void JoinFromMeetingStone(Player* player, uint32 areaId);
         void Update(uint32 diff);
         void OnPlayerLogout(ObjectGuid const& guid);
 

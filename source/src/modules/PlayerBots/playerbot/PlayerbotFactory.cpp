@@ -4579,6 +4579,16 @@ void PlayerbotFactory::InitAvailableSpells()
             bot->learnSpell(9634, false);   // Dire Bear Form
     }
 
+    // Dual Wield. Trainers teach it with 1424, but learnClassLevelSpells skips
+    // 674 itself: its spell level is 0 and its family is generic. Without it
+    // CanEquipUnseenItem refuses every off-hand weapon and InitEquipment leaves
+    // the slot empty. On 2026-10-21 no bot warrior, hunter or rogue knew it.
+    // The levels are the trainers' (sql/custom/116 and 174).
+    uint32 const dualWieldLevel = (bot->getClass() == CLASS_WARRIOR || bot->getClass() == CLASS_ROGUE) ? 10
+                                : bot->getClass() == CLASS_HUNTER ? 20 : 0;
+    if (dualWieldLevel && bot->GetLevel() >= dualWieldLevel && !bot->HasSpell(674))
+        bot->learnSpell(674, false);        // Dual Wield
+
 #ifdef MANGOSBOT_ZERO
     // add book spells
     if (bot->GetLevel() == 60)

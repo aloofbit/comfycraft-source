@@ -29,9 +29,11 @@
 #include "Player.h"
 #include "SpellAuraDefines.h"
 #include "SpellAuras.h"
-#include "Config/Config.h" // Rate.Drop.Item.UncommonGear
+#include "Config/Config.h" // the conf keys LootRates falls back on
 #include "Database/DatabaseEnv.h"
 #include "LootLuck.h"
+#include "LootRates.h"
+#include "DungeonBosses.h"
 
 #include <atomic>
 #include <mutex>
@@ -61,7 +63,7 @@ LootStore LootTemplates_Skinning(     "skinning_loot_template",      "creature s
 class LootTemplate::LootGroup                               // A set of loot definitions for items (refs are not allowed)
 {
 public:
-    LootGroup() : hasConditionalEqualChancedItem(false) {}
+    LootGroup() : hasConditionalEqualChancedItem(false), hasRareWorldGear(false) {}
     void AddEntry(LootStoreItem& item);                 // Adds an entry to the group (at loading stage)
     bool HasQuestDrop() const;                          // True if group includes at least 1 quest drop entry
     bool HasQuestDropForPlayer(Player const * player) const;
@@ -73,12 +75,16 @@ public:
     void Verify(LootStore const& lootstore, uint32 id, uint32 group_id) const;
     void CollectLootIds(LootIdSet& set) const;
     void CheckLootRefs(LootIdSet* ref_set) const;
+    // A dungeon boss's group: each entry rolls on its own (LootTemplate::Process)
+    bool RollEach(Loot& loot, bool rate, Player const* lootOwner, std::vector<LootStoreItem const*>& pool) const;
 private:
     LootStoreItemList ExplicitlyChanced;                // Entries with chances defined in DB
     LootStoreItemList EqualChanced;                     // Zero chances - every entry takes the same chance
 
     LootStoreItem const * Roll(Loot const& loot, bool rate, Player const* lootOwner, bool skipQuestItems) const; // Rolls an item from the group, returns nullptr if all miss their chances
+    float RareGearScale(float const rareRates[2]) const;
     bool hasConditionalEqualChancedItem;
+    bool hasRareWorldGear;                              // an entry takes the rare gear rate (IsRareWorldGear)
 };
 
 //Remove all data and free all memory
@@ -290,9 +296,9 @@ static float GetGatheringItemChanceMod(Player const* lootOwner, uint32 itemId)
     return chanceMod;
 }
 
-// Green weapons and armour drop at Rate.Drop.Item.UncommonGear, in grouped
-// rows too, where the quality rates do not reach. Almost all green gear is in
-// groups. The key is read at the roll, so "reload config" changes it.
+// Green weapons and armour drop at the green gear rate (LootRates.h), in
+// grouped rows too, where the quality rates do not reach. Almost all green
+// gear is in groups.
 static bool IsGreenGear(uint32 itemId)
 {
     ItemPrototype const* pProto = sObjectMgr.GetItemPrototype(itemId);
@@ -302,7 +308,91 @@ static bool IsGreenGear(uint32 itemId)
 
 static float GetGreenGearRate()
 {
-    return std::max(sConfig.GetFloatDefault("Rate.Drop.Item.UncommonGear", 1.0f), 0.0f);
+    return LootRates::Green();
+}
+
+// Blue weapons and armour that bind on equip and drop from a row under 5% are
+// world drops. They drop at the rare gear rate (LootRates.h), in grouped rows
+// too, or at the endgame rate from required level 50, where world blues
+// already drop about 25 times as often. A row of 5% or more is a named mob's
+// own loot and keeps its chance.
+static bool IsRareWorldGear(ItemPrototype const* proto, float chance)
+{
+    return proto && chance < 5.0f && proto->Quality == ITEM_QUALITY_RARE && proto->Bonding == BIND_WHEN_EQUIPPED &&
+        (proto->Class == ITEM_CLASS_WEAPON || proto->Class == ITEM_CLASS_ARMOR);
+}
+
+static bool IsEndgameGear(ItemPrototype const* proto)
+{
+    return proto->RequiredLevel >= 50;
+}
+
+static float GetRareGearRate(bool endgame)
+{
+    return LootRates::Rare(endgame);
+}
+
+//
+// --------- Gear drop rates (LootRates.h) ---------
+//
+
+namespace
+{
+    std::atomic<float> s_greenRate{ 1.0f };
+    std::atomic<float> s_rareRate{ 1.0f };
+    std::atomic<float> s_rareEndgameRate{ 1.0f };
+}
+
+// The table is probed first, as loot_luck is: a SELECT on a missing table is
+// ASSERT(false) in HandleMySQLError.
+static bool LootRatesTablePresent()
+{
+    bool present = false;
+    if (QueryResult* probe = CharacterDatabase.Query(
+            "SELECT COUNT(*) FROM information_schema.tables "
+            "WHERE table_schema = DATABASE() AND table_name = 'loot_rates'"))
+    {
+        present = probe->Fetch()[0].GetUInt32() > 0;
+        delete probe;
+    }
+    return present;
+}
+
+bool LootRates::Load()
+{
+    float green = sConfig.GetFloatDefault("Rate.Drop.Item.UncommonGear", 1.0f);
+    float rare = sConfig.GetFloatDefault("Rate.Drop.Item.RareGear", 1.0f);
+    float endgame = sConfig.GetFloatDefault("Rate.Drop.Item.RareGear.Endgame", 1.0f);
+
+    bool fromTable = false;
+    if (LootRatesTablePresent())
+    {
+        if (QueryResult* result = CharacterDatabase.Query(
+                "SELECT `uncommon_gear`, `rare_gear`, `rare_gear_endgame` FROM `loot_rates` WHERE `id` = 1"))
+        {
+            Field* fields = result->Fetch();
+            green = fields[0].GetFloat();
+            rare = fields[1].GetFloat();
+            endgame = fields[2].GetFloat();
+            fromTable = true;
+            delete result;
+        }
+    }
+
+    s_greenRate.store(std::max(green, 0.0f), std::memory_order_relaxed);
+    s_rareRate.store(std::max(rare, 0.0f), std::memory_order_relaxed);
+    s_rareEndgameRate.store(std::max(endgame, 0.0f), std::memory_order_relaxed);
+    return fromTable;
+}
+
+float LootRates::Green()
+{
+    return s_greenRate.load(std::memory_order_relaxed);
+}
+
+float LootRates::Rare(bool endgame)
+{
+    return (endgame ? s_rareEndgameRate : s_rareRate).load(std::memory_order_relaxed);
 }
 
 //
@@ -323,6 +413,10 @@ namespace
     // The looters of the creature corpse that Loot::FillLoot is filling, set
     // around LootTemplate::Process. Null for every other kind of loot.
     thread_local std::vector<Player*> const* t_questLooters = nullptr;
+
+    // The loot table of the 5-man dungeon boss whose corpse Loot::FillLoot is
+    // filling (DungeonBosses.h). Null for every other loot.
+    thread_local LootTemplate const* t_bossLoot = nullptr;
 }
 
 // The average number of rolls for a drop when the n-th roll since the last
@@ -566,7 +660,14 @@ bool LootStoreItem::Roll(bool rate, Player const* lootOwner) const
 
     float qualityModifier = 1.0f;
     if (pProto && rate)
-        qualityModifier = IsGreenGear(itemid) ? GetGreenGearRate() : sWorld.getConfig(qualityToRate[pProto->Quality]);
+    {
+        if (IsGreenGear(itemid))
+            qualityModifier = GetGreenGearRate();
+        else if (IsRareWorldGear(pProto, chance))
+            qualityModifier = GetRareGearRate(IsEndgameGear(pProto));
+        else
+            qualityModifier = sWorld.getConfig(qualityToRate[pProto->Quality]);
+    }
 
     return roll_chance_f(chance * qualityModifier * (100.0f + GetGatheringItemChanceMod(lootOwner, itemid)) / 100.0f);
 }
@@ -817,9 +918,14 @@ bool Loot::FillLoot(uint32 loot_id, LootStore const& store, Player* loot_owner, 
             questLooters.push_back(loot_owner);
     }
 
+    bool const boss = &store == &LootTemplates_Creature && looted && looted->GetTypeId() == TYPEID_UNIT &&
+        IsDungeonBoss(looted->GetEntry(), looted->GetMapId());
+
     t_questLooters = questLooters.empty() ? nullptr : &questLooters;
+    t_bossLoot = boss ? tab : nullptr;
     tab->Process(*this, store, store.IsRatesAllowed(), loot_owner); // Processing is done there, callback via Loot::AddItem()
     t_questLooters = nullptr;
+    t_bossLoot = nullptr;
 
     // Setting access rights for group loot case
     if (!personal && group)
@@ -1423,13 +1529,54 @@ bool Loot::hasItemFor(Player* player) const
 void LootTemplate::LootGroup::AddEntry(LootStoreItem& item)
 {
     if (item.chance != 0)
+    {
         ExplicitlyChanced.push_back(item);
+        if (IsRareWorldGear(sObjectMgr.GetItemPrototype(item.itemid), item.chance))
+            hasRareWorldGear = true;
+    }
     else
     {
         EqualChanced.push_back(item);
         if (item.conditionId)
             hasConditionalEqualChancedItem = true;
     }
+}
+
+// The share of the rare gear rate a group's blue world drops get. The roll takes the
+// entries in table order, so a group pushed past 100% never reaches its last
+// entries. When the rates would push the group past 100%, or past its own
+// total when that is more, the blues are scaled back together, never below
+// their table chance. Lord Kazzak's 53 blues at 1.887% stay as they are.
+float LootTemplate::LootGroup::RareGearScale(float const rareRates[2]) const
+{
+    float raw = 0.0f;
+    float rareRaw = 0.0f;
+    float rare = 0.0f;
+    float other = 0.0f;
+    float greenRate = -1.0f;
+    for (const auto& i : ExplicitlyChanced)
+    {
+        raw += i.chance;
+        ItemPrototype const* proto = sObjectMgr.GetItemPrototype(i.itemid);
+        if (IsRareWorldGear(proto, i.chance))
+        {
+            rareRaw += i.chance;
+            rare += i.chance * rareRates[IsEndgameGear(proto)];
+        }
+        else if (IsGreenGear(i.itemid))
+        {
+            if (greenRate < 0.0f)
+                greenRate = GetGreenGearRate();
+            other += i.chance * greenRate;
+        }
+        else
+            other += i.chance;
+    }
+
+    float const limit = std::max(100.0f, raw);
+    if (rare <= 0.0f || other + rare <= limit)
+        return 1.0f;
+    return std::max(limit - other, rareRaw) / rare;
 }
 
 // Rolls an item from the group, returns nullptr if all miss their chances
@@ -1439,6 +1586,15 @@ LootStoreItem const * LootTemplate::LootGroup::Roll(Loot const& loot, bool rate,
     {
         float Roll = rand_chance_f();
         float gearRate = -1.0f;                             // read once, at the first green gear entry
+
+        float rareRates[2] = { 1.0f, 1.0f };                // rare, rare endgame (LootRates.h)
+        float rareScale = 1.0f;
+        if (rate && hasRareWorldGear)
+        {
+            rareRates[0] = GetRareGearRate(false);
+            rareRates[1] = GetRareGearRate(true);
+            rareScale = RareGearScale(rareRates);
+        }
 
         for (const auto& i : ExplicitlyChanced) //check each explicitly chanced entry in the template and modify its chance based on quality.
         {
@@ -1457,6 +1613,12 @@ LootStoreItem const * LootTemplate::LootGroup::Roll(Loot const& loot, bool rate,
                 if (gearRate < 0.0f)
                     gearRate = GetGreenGearRate();
                 chance *= gearRate;
+            }
+            else if (rate && hasRareWorldGear)
+            {
+                ItemPrototype const* proto = sObjectMgr.GetItemPrototype(i.itemid);
+                if (IsRareWorldGear(proto, i.chance))
+                    chance *= rareRates[IsEndgameGear(proto)] * rareScale;
             }
 
             Roll -= chance * (100.0f + GetGatheringItemChanceMod(lootOwner, i.itemid)) / 100.0f;
@@ -1547,6 +1709,50 @@ void LootTemplate::LootGroup::Process(Loot& loot, bool rate, Player const* lootO
     LootStoreItem const * item = Roll(loot, rate, lootOwner, personal);
     if (item != nullptr)
         loot.AddItem(*item);
+}
+
+// A dungeon boss's group: each item rolls once at its table chance, so a kill
+// can give several items of the group, or none. The green gear rate is not
+// applied. Returns true when gear for everyone dropped: a weapon or armour of
+// any quality, with no condition. Adds the gear the guarantee may pick to
+// `pool`. Herbs, bags, mounts and recipes roll but neither count nor go in it.
+bool LootTemplate::LootGroup::RollEach(Loot& loot, bool rate, Player const* lootOwner, std::vector<LootStoreItem const*>& pool) const
+{
+    if (!EqualChanced.empty())                              // no listed boss has these: keep the shared roll
+    {
+        Process(loot, rate, lootOwner);
+        return false;
+    }
+
+    bool dropped = false;
+    for (const auto& i : ExplicitlyChanced)
+    {
+        if (!i.AllowedForTeam(loot))
+            continue;
+
+        if (i.needs_quest)
+        {
+            if (t_questLooters)
+                RollForQuestLooters(loot, i, rate, true);
+            else if (roll_chance_f(i.chance))
+                loot.AddItem(i);
+            continue;
+        }
+
+        ItemPrototype const* proto = sObjectMgr.GetItemPrototype(i.itemid);
+        bool const gear = i.conditionId == 0 && proto &&
+            (proto->Class == ITEM_CLASS_WEAPON || proto->Class == ITEM_CLASS_ARMOR);
+        if (gear)
+            pool.push_back(&i);
+
+        if (i.chance < 100.0f && !roll_chance_f(i.chance * (100.0f + GetGatheringItemChanceMod(lootOwner, i.itemid)) / 100.0f))
+            continue;
+
+        loot.AddItem(i);
+        if (gear)
+            dropped = true;
+    }
+    return dropped;
 }
 
 // Overall chance for the group without equal chanced items
@@ -1672,8 +1878,39 @@ void LootTemplate::Process(Loot& loot, LootStore const& store, bool rate, Player
     }
 
     // Now processing groups
+    if (t_bossLoot != this)
+    {
+        for (const auto& group : Groups)
+            group.Process(loot, rate, lootOwner);
+        return;
+    }
+
+    // A 5-man dungeon boss: each item of its own groups rolls on its own
+    // (references keep the shared roll). When no gear dropped, one piece of
+    // gear drops, picked by table chance.
+    std::vector<LootStoreItem const*> pool;
+    bool dropped = false;
     for (const auto& group : Groups)
-        group.Process(loot, rate, lootOwner);
+        dropped |= group.RollEach(loot, rate, lootOwner, pool);
+
+    if (dropped || pool.empty())
+        return;
+
+    float total = 0.0f;
+    for (LootStoreItem const* i : pool)
+        total += i->chance;
+
+    float pick = rand_chance_f() * total / 100.0f;
+    for (LootStoreItem const* i : pool)
+    {
+        pick -= i->chance;
+        if (pick < 0.0f)
+        {
+            loot.AddItem(*i);
+            return;
+        }
+    }
+    loot.AddItem(*pool.back());
 }
 
 // True if template includes at least 1 quest drop entry

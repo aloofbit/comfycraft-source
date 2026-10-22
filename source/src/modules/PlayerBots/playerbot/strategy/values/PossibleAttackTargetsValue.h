@@ -16,6 +16,12 @@ namespace ai
         static bool HasBreakableCC(Unit* target, Player* player);
         static bool HasUnBreakableCC(Unit* target, Player* player);
 
+        // Crowd control that any damage ends: polymorph, and a confuse or stun
+        // aura that breaks on damage (sap, gouge, hibernate, freezing trap).
+        static bool HasDamageBreakableCC(Unit* target);
+        // An enemy held by such crowd control within `radius` (2D) of the point.
+        static bool DamageBreakableCCNear(Player* bot, float x, float y, float radius);
+
         virtual std::string Format() override;
 
 #ifdef GenerateBotHelp

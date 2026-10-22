@@ -60,10 +60,21 @@ namespace ai
         CastFlamestrikeAction(PlayerbotAI* ai) : CastSpellAction(ai, "flamestrike") {}
     };
 
-    class CastFrostNovaAction : public CastMeleeAoeSpellAction
+    // Cast at the mob that hits the mage, which is often not the mage's
+    // current target (FrostNovaTarget). Not at the mage itself: CanCastSpell
+    // refuses a harmful spell on a friendly unit. The nova is centred on the
+    // caster either way.
+    class CastFrostNovaAction : public CastSpellAction
     {
     public:
-        CastFrostNovaAction(PlayerbotAI* ai) : CastMeleeAoeSpellAction(ai, "frost nova", 10.0f) {}
+        CastFrostNovaAction(PlayerbotAI* ai) : CastSpellAction(ai, "frost nova")
+        {
+            range = 10.0f;
+        }
+
+    protected:
+        Unit* GetTarget() override;
+        std::string GetReachActionName() override { return ""; }
     };
 
 	class CastFrostboltAction : public CastSpellAction

@@ -173,6 +173,43 @@ bool PossibleAttackTargetsValue::HasBreakableCC(Unit* target, Player* player)
     return false;
 }
 
+// HasBreakableCC above also counts a frozen mob and asks for a player. This is
+// only "would a hit wake it", for area spells (2026-10-22).
+bool PossibleAttackTargetsValue::HasDamageBreakableCC(Unit* target)
+{
+    if (target->IsPolymorphed())
+        return true;
+
+    for (AuraType type : { SPELL_AURA_MOD_CONFUSE, SPELL_AURA_MOD_STUN })
+    {
+        for (Aura* aura : target->GetAurasByType(type))
+        {
+            if (aura->GetSpellProto()->HasAuraInterruptFlag(AURA_INTERRUPT_FLAG_DAMAGE))
+                return true;
+        }
+    }
+
+    return false;
+}
+
+bool PossibleAttackTargetsValue::DamageBreakableCCNear(Player* bot, float x, float y, float radius)
+{
+    // The grid search is round the bot, so reach past the point.
+    const float searchRange = sServerFacade.GetDistance2d(bot, x, y) + radius;
+    std::list<Unit*> units;
+    AnyUnfriendlyUnitInObjectRangeCheck check(bot, searchRange);
+    UnitListSearcher<AnyUnfriendlyUnitInObjectRangeCheck> searcher(units, check);
+    Cell::VisitAllObjects(bot, searcher, searchRange);
+
+    for (Unit* unit : units)
+    {
+        if (sServerFacade.IsAlive(unit) && sServerFacade.GetDistance2d(unit, x, y) <= radius && HasDamageBreakableCC(unit))
+            return true;
+    }
+
+    return false;
+}
+
 bool PossibleAttackTargetsValue::HasUnBreakableCC(Unit* target, Player* player)
 {
     if (target->IsStunned())

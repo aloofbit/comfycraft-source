@@ -54,7 +54,7 @@ INSERT INTO item_template
    inventory_type, allowable_class, allowable_race, item_level, required_level,
    stackable, max_count, bonding, material, sheath, description)
 VALUES
-  (100036,15,0,'Rune Chip',38760,2,0,0,0,0,-1,-1,1,0,200,0,1,0,0,
+  (100036,15,0,'Rune Chip',35465,2,0,0,0,0,-1,-1,1,0,200,0,1,0,0,
    'An enchanter trades scrolls for these.');
 
 -- ---------------------------------------------------------------- Scrolls

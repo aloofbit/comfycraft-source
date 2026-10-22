@@ -1,6 +1,7 @@
 #pragma once
 
-// The bosses of each 5-man dungeon, for the run timer (DungeonRun.h).
+// The bosses of each 5-man dungeon, for the run timer (DungeonRun.h) and the
+// boss loot rolls (LootTemplate::Process in LootMgr.cpp).
 //
 // A run is cleared when every required slot of its dungeon (or wing) has a
 // kill. A row
@@ -466,3 +467,13 @@ inline constexpr DungeonBoss DUNGEON_BOSSES[] = {
     {  35, 0, 0, false, 80854 },  // Damian
     {  35, 0, 0, false, 93107 },  // Arc'tiras
 };
+
+// True when the creature is a listed boss of the dungeon it is in. A scan: it
+// runs once for each creature corpse loot.
+inline bool IsDungeonBoss(uint32 entry, uint32 mapId)
+{
+    for (DungeonBoss const& row : DUNGEON_BOSSES)
+        if (row.entry == entry && row.mapId == mapId)
+            return true;
+    return false;
+}
