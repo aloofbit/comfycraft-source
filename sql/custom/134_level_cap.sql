@@ -11,8 +11,8 @@
 --  value at or above MaxPlayerLevel is the same as 0.
 --
 --  The cap only stops XP. A character already above it keeps its level, and
---  random bot levels do not follow it. At the cap a quest pays the max-level
---  gold in place of XP, as at 60.
+--  random bot levels do not follow it. At the cap a quest pays scaled gold
+--  in place of XP (195_level_cap_quest_gold.sql).
 --
 --  mangosd reads the row at startup and on the console command `levelcap`.
 --  The Workshop page on the website (/admin) writes the row and sends that

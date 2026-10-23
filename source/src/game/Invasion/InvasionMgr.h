@@ -100,6 +100,10 @@ class InvasionManager
         // them hostile there. Nobody else in the town can join in.
         bool AreFoes(ObjectGuid a, ObjectGuid b) const;
 
+        // Either side of a fight. BuildValuesUpdate asks it for a player's own
+        // view of PLAYER_FLAGS: the sanctuary bit is hidden from them.
+        bool IsFighting(ObjectGuid guid) const;
+
         // RELEASE SPIRIT, for a defender who fell in the fight: the ghost stays
         // over the body instead of going to a graveyard, and the client offers
         // its own Resurrect there. True when this is such a defender, so

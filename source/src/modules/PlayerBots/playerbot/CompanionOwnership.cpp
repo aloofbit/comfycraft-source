@@ -483,6 +483,13 @@ namespace CompanionOwnership
     }
 }
 
+// Backs /who leaving companions out (MiscHandler.cpp). The who-list runs on a
+// WorldAsync thread; IsCompanion takes s_lock shared, so the call is safe there.
+bool Playerbot_IsCompanion(uint32 guidLow)
+{
+    return CompanionOwnership::IsCompanion(guidLow);
+}
+
 // `.companions` names your companions; `.companions sync` sends the same names
 // to ComfyUI and prints nothing.
 //

@@ -856,11 +856,28 @@ LootItem::LootItem(uint32 itemid_, uint32 count_, int32 randomPropertyId_)
     is_counted = 0;
 }
 
+// Factionless: a team condition on an item that starts a quest is ignored. The quest is
+// open to both sides (Factionless.IgnoreQuestRaces), so the item that starts it must drop
+// for both: Edwin VanCleef's An Unsent Letter was Alliance only. 32 starters are gated so.
+static bool IgnoresTeamCondition(uint32 itemId, uint16 conditionId)
+{
+    if (!conditionId || !sWorld.getConfig(CONFIG_BOOL_FACTIONLESS_IGNORE_QUEST_RACES))
+        return false;
+
+    ConditionEntry const* condition = sConditionStorage.LookupEntry<ConditionEntry>(conditionId);
+    if (!condition || condition->GetTeam() == TEAM_CROSSFACTION)
+        return false;
+
+    ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemId);
+    return proto && proto->StartQuest;
+}
+
 // Basic checks for player/item compatibility - if false no chance to see the item in the loot
 bool LootItem::AllowedForPlayer(Player const* player, WorldObject const* lootTarget) const
 {
     // DB conditions check
-    if (conditionId && !sObjectMgr.IsConditionSatisfied(conditionId, player, player->GetMap(), lootTarget, CONDITION_FROM_LOOT))
+    if (conditionId && !IgnoresTeamCondition(itemid, conditionId) &&
+        !sObjectMgr.IsConditionSatisfied(conditionId, player, player->GetMap(), lootTarget, CONDITION_FROM_LOOT))
         return false;
 
     ItemPrototype const *pProto = sObjectMgr.GetItemPrototype(itemid);
@@ -892,7 +909,7 @@ bool LootItem::AllowedForPlayer(Player const* player, WorldObject const* lootTar
 // Check for group wide item compatibility
 bool LootStoreItem::AllowedForTeam(Loot const& loot) const
 {
-    if (conditionId)
+    if (conditionId && !IgnoresTeamCondition(itemid, conditionId))
     {
         ConditionEntry const* condition = sConditionStorage.LookupEntry<ConditionEntry>(conditionId);
         if (!condition)

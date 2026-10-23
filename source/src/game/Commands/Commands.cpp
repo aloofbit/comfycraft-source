@@ -4009,9 +4009,28 @@ bool ComfyCommands::HandleSetSpeedCommand(ChatHandler* handler, char* args)
 // The level cap (Objects/LevelCap.h). With no argument it re-reads
 // tw_char.level_cap, which is what the website sends after it writes the row.
 // With a level it writes the row. 0, or MaxPlayerLevel and above, is no cap.
+// `gold <percent>` writes the quest gold paid at the cap.
 bool ComfyCommands::HandleLevelCapCommand(ChatHandler* handler, char* args)
 {
-    if (*args)
+    if (handler->ExtractLiteralArg(&args, "gold"))
+    {
+        uint32 percent;
+        if (!handler->ExtractUInt32(&args, percent) || percent > LevelCap::QUEST_GOLD_MAX)
+        {
+            handler->PSendSysMessage("Quest gold is a percent from 0 to %u.", LevelCap::QUEST_GOLD_MAX);
+            handler->SetSentErrorMessage(true);
+            return false;
+        }
+
+        char const* by = handler->m_session ? handler->m_session->GetPlayerName() : "console";
+        if (!LevelCap::SetQuestGold(percent, by))
+        {
+            handler->SendSysMessage("No `quest_gold` column. Apply sql/custom/195_level_cap_quest_gold.sql to tw_char.");
+            handler->SetSentErrorMessage(true);
+            return false;
+        }
+    }
+    else if (*args)
     {
         uint32 level;
         if (!handler->ExtractUInt32(&args, level))
@@ -4034,7 +4053,7 @@ bool ComfyCommands::HandleLevelCapCommand(ChatHandler* handler, char* args)
 
     uint32 const cap = LevelCap::Get();
     if (cap < sWorld.getConfig(CONFIG_UINT32_MAX_PLAYER_LEVEL))
-        handler->PSendSysMessage("Level cap: %u.", cap);
+        handler->PSendSysMessage("Level cap: %u. Quest gold at the cap: %u%%.", cap, LevelCap::QuestGold());
     else
         handler->PSendSysMessage("Level cap: none (%u).", cap);
     return true;
@@ -15453,7 +15472,7 @@ namespace
         { "setlevel",          ".setlevel <level> [name]   set a level, up or down" },
         { "gear",              ".gear replace | fill | bags  any | green | blue | epic [spec] [name]   random gear for the level" },
         { "setspeed",          ".setspeed <rate> [name]   walk, run and swim speed, 1 is normal, until the next login" },
-        { "levelcap",          ".levelcap [level]   the level XP stops at, or set it (0 is none)" },
+        { "levelcap",          ".levelcap [level] | gold <percent>   the level XP stops at, or set it (0 is none); the quest gold paid at the cap (100 is the default)" },
         { "dungeontuning",     ".dungeontuning [health% damage%]   dungeon creature health and damage, or set them (100 is stock)" },
         { "lootluck",          ".lootluck [on | off | log on | log off]   bad-luck protection on quest drops, or set it" },
         { "lootrates",         ".lootrates   re-read the gear drop rates and show them" },

@@ -96,6 +96,9 @@ void WorldSession::HandleRepopRequestOpcode(WorldPacket & /*recv_data*/)
         player->ScheduleRepopAtGraveyard();
 }
 
+// Implemented in the bot module, stubbed in PlayerbotStubs.cpp.
+extern bool Playerbot_IsCompanion(uint32 guidLow);
+
 class WhoListClientQueryTask
 {
 public:
@@ -136,6 +139,10 @@ public:
             Player* pPlayer = itr.second;
 
             if (botNpcGuids.count(pPlayer->GetGUIDLow()))
+                continue;
+
+            // A companion is a hired NPC to its owner, not a player online.
+            if (Playerbot_IsCompanion(pPlayer->GetGUIDLow()))
                 continue;
 
             if (security == SEC_PLAYER)

@@ -1067,7 +1067,7 @@ ChatCommand * ChatHandler::getCommandTable()
         { "setlevel",       SEC_DEVELOPER,       true,  &ComfyCommands::HandleSetLevelCommand,          "", nullptr },
         { "gear",           SEC_DEVELOPER,       true,  &ComfyCommands::HandleGearCommand,              "", nullptr },
         { "setspeed",       SEC_DEVELOPER,       true,  &ComfyCommands::HandleSetSpeedCommand,          "", nullptr },
-        { "levelcap",       SEC_DEVELOPER,       true, &ComfyCommands::HandleLevelCapCommand,          "Syntax: .levelcap [level]\r\nShows the level cap, or sets it. 0 is no cap.", nullptr },
+        { "levelcap",       SEC_DEVELOPER,       true, &ComfyCommands::HandleLevelCapCommand,          "Syntax: .levelcap [level]\r\n.levelcap gold <percent>\r\nShows the level cap, or sets it. 0 is no cap. gold sets the quest gold paid at the cap.", nullptr },
         { "dungeontuning",  SEC_DEVELOPER,       true,  &ComfyCommands::HandleDungeonTuningCommand,     "Syntax: .dungeontuning [health% damage%]\r\nShows the health and damage of dungeon creatures, or sets them. 100 is stock.", nullptr },
         { "lootluck",       SEC_DEVELOPER,       true,  &ComfyCommands::HandleLootLuckCommand,          "Syntax: .lootluck [on | off | log on | log off]\r\nShows bad-luck protection on quest drops, or sets it.", nullptr },
         { "lootrates",      SEC_DEVELOPER,       true,  &ComfyCommands::HandleLootRatesCommand,         "Syntax: .lootrates\r\nRe-reads the gear drop rates and shows them.", nullptr },

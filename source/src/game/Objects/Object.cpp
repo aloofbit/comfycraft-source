@@ -871,6 +871,17 @@ void Object::BuildValuesUpdate(uint8 updatetype, ByteBuffer * data, UpdateMask *
                     if ((playerFlags & PLAYER_FLAGS_FFA_PVP) && owner && owner != target && owner->IsInSameRaidWith(target))
                         playerFlags &= ~PLAYER_FLAGS_FFA_PVP;
 
+                    // ComfyCraft: the 1.12 client seems to refuse an attack in a town on its
+                    // own, from the sanctuary bit (untested in game, 2026-10-23). An invader and
+                    // their defender do not see that bit on themselves or on each other
+                    // while they fight. The server keeps the real flag, so GetReactionTo
+                    // still keeps everyone else in the town out (AreFoes). InvasionMgr
+                    // forces this field out when a fight starts and ends.
+                    if ((playerFlags & PLAYER_FLAGS_SANCTUARY) && owner &&
+                        (owner == target ? sInvasionMgr.IsFighting(owner->GetObjectGuid())
+                                         : sInvasionMgr.AreFoes(owner->GetObjectGuid(), target->GetObjectGuid())))
+                        playerFlags &= ~PLAYER_FLAGS_SANCTUARY;
+
                     *data << uint32(playerFlags);
                 }
                 // Hide real health value. Send a percent instead. See ShowHealthValues option in mangosd.conf

@@ -51,6 +51,16 @@ namespace
         return sWorld.getConfig(index) * IN_MILLISECONDS;
     }
 
+    // THE SANCTUARY BIT IS HIDDEN FROM THE TWO SIDES OF A FIGHT (Object.cpp,
+    // PLAYER_FLAGS), and a client is sent a field only when it changes. Call
+    // this for both sides when a fight starts and ends, or a client keeps the
+    // old answer and refuses the attack in a town.
+    void ResendPlayerFlags(Player* player)
+    {
+        if (player && player->IsInWorld())
+            player->ForceValuesUpdateAtIndex(PLAYER_FLAGS);
+    }
+
     /*
      * THE ARENA, a duel's rule at a hundred yards. A duel measures from its flag
      * (Player::CheckDuelDistance: 75 yd out, 70 back, 10 s to return, and the
@@ -174,6 +184,12 @@ namespace
         if (!player->IsAlive() || player->IsBeingTeleported() || player->IsTaxiFlying())
             return false;
 
+        // A BOAT, ZEPPELIN OR LIFT. Positions are world coordinates, so an
+        // invader would land in the sea while the boat sails on, and an
+        // invader's origin would be a point on the route.
+        if (player->GetTransport())
+            return false;
+
         // A GM is invisible half the time and immune the rest of it; a bot is
         // somebody's companion standing next to them, which is not a fight.
         if (player->IsGameMaster() || player->GetModuleSlot(MODULE_SLOT_BOT_AI))
@@ -239,6 +255,14 @@ bool InvasionManager::AreFoes(ObjectGuid a, ObjectGuid b) const
     for (auto const& inv : m_invasions)
         if (inv.phase == PHASE_FIGHTING &&
             ((inv.invader == a && inv.defender == b) || (inv.invader == b && inv.defender == a)))
+            return true;
+    return false;
+}
+
+bool InvasionManager::IsFighting(ObjectGuid guid) const
+{
+    for (auto const& inv : m_invasions)
+        if (inv.phase == PHASE_FIGHTING && (inv.invader == guid || inv.defender == guid))
             return true;
     return false;
 }
@@ -584,6 +608,8 @@ void InvasionManager::Arrive(Invasion& inv, Player* invader, Player* defender)
     inv.outDefender = 0;
     inv.phase = PHASE_FIGHTING;
     inv.timer = SecondsConfig(CONFIG_UINT32_INVASION_DURATION_SECONDS);
+    ResendPlayerFlags(invader);
+    ResendPlayerFlags(defender);
 
     // THIS IS THE MOMENT THEY COUNT AS INVADED, so this is where the respite is
     // stamped. Conclude stamps it again when the fight ends, which is what makes
@@ -644,6 +670,8 @@ void InvasionManager::Conclude(Invasion& inv, char const* invaderLine, char cons
 
     inv.phase = PHASE_LEAVING;
     inv.timer = delayMs ? delayMs : SecondsConfig(CONFIG_UINT32_INVASION_RETURN_SECONDS);
+    ResendPlayerFlags(sObjectAccessor.FindPlayer(inv.invader));
+    ResendPlayerFlags(sObjectAccessor.FindPlayer(inv.defender));
 
     // The fight is over: the minimap dots go.
     HideRadar(sObjectAccessor.FindPlayer(inv.invader));
@@ -777,6 +805,7 @@ bool InvasionManager::OnPlayerLogout(Player* player)
             // Erased below without going through Conclude, so written down
             // here. Nobody won: fleeing is not losing to anybody.
             RecordMatch(*itr, ObjectGuid());
+            ResendPlayerFlags(sObjectAccessor.FindPlayer(itr->defender));
         }
         else
         {
@@ -847,17 +876,30 @@ void InvasionManager::Update(uint32 diff)
     {
         Invasion& inv = m_invasions[i];
 
-        Player* invader = sObjectAccessor.FindPlayer(inv.invader);
+        // NOT FindPlayer FOR THE INVADER. A far teleport (a loading screen)
+        // takes a player out of the world until the client is in, and
+        // FindPlayer does not find them then. Until 2026-10-23 this dropped the
+        // invasion with no message: on a cross-continent arrival, on a GM
+        // .tele, and on carrying a dead invader home to another continent.
+        Player* invader = sObjectAccessor.FindPlayerNotInWorld(inv.invader);
         Player* defender = sObjectAccessor.FindPlayer(inv.defender);
 
         // Either side gone is the end of it. The invader being gone means
         // there is nothing left to send home; the defender being gone is
         // handled in OnPlayerLogout, so reaching this for them means something
         // less orderly happened.
-        if (!invader || !invader->IsInWorld())
+        if (!invader || (!invader->IsInWorld() && !invader->IsBeingTeleported()))
         {
             HideRadar(defender);
+            ResendPlayerFlags(defender);
             m_invasions.erase(m_invasions.begin() + i);
+            continue;
+        }
+
+        // On a loading screen: nothing to do until they are in the world.
+        if (!invader->IsInWorld())
+        {
+            ++i;
             continue;
         }
 

@@ -3712,6 +3712,7 @@ void Player::SendLogXPGain(uint32 GivenXP, Unit* victim, uint32 RestXP) const
 namespace
 {
     std::atomic<uint32> s_levelCap{ 0 };
+    std::atomic<uint32> s_levelCapQuestGold{ 100 };
 }
 
 uint32 LevelCap::Get()
@@ -3737,17 +3738,42 @@ static bool LevelCapTablePresent()
     return present;
 }
 
+// The column from 195 is probed the same way. Without it the percent stays 100.
+static bool LevelCapQuestGoldPresent()
+{
+    bool present = false;
+    if (QueryResult* probe = CharacterDatabase.Query(
+            "SELECT COUNT(*) FROM information_schema.columns "
+            "WHERE table_schema = DATABASE() AND table_name = 'level_cap' AND column_name = 'quest_gold'"))
+    {
+        present = probe->Fetch()[0].GetUInt32() > 0;
+        delete probe;
+    }
+    return present;
+}
+
 uint32 LevelCap::Load()
 {
     uint32 cap = 0;
+    uint32 gold = 100;
     if (!LevelCapTablePresent())
         sLog.outString(">> Level cap: none (`level_cap` is missing; apply sql/custom/134_level_cap.sql).");
+    else if (LevelCapQuestGoldPresent())
+    {
+        if (QueryResult* result = CharacterDatabase.Query("SELECT `level`, `quest_gold` FROM `level_cap` WHERE `id` = 1"))
+        {
+            cap = result->Fetch()[0].GetUInt32();
+            gold = std::min(result->Fetch()[1].GetUInt32(), QUEST_GOLD_MAX);
+            delete result;
+        }
+    }
     else if (QueryResult* result = CharacterDatabase.Query("SELECT `level` FROM `level_cap` WHERE `id` = 1"))
     {
         cap = result->Fetch()[0].GetUInt32();
         delete result;
     }
     s_levelCap.store(cap, std::memory_order_relaxed);
+    s_levelCapQuestGold.store(gold, std::memory_order_relaxed);
     return cap;
 }
 
@@ -3759,11 +3785,50 @@ bool LevelCap::Set(uint32 level, char const* changedBy)
     std::string by = changedBy ? changedBy : "";
     CharacterDatabase.escape_string(by);
     // Direct, so two changes a second apart cannot land in the wrong order.
+    // An UPDATE and not a REPLACE, which would reset quest_gold; 134 always
+    // inserts row 1. Not INSERT INTO with a column list either: the table
+    // check in Build-Server.ps1 reads the columns as table names.
     CharacterDatabase.DirectPExecute(
-        "REPLACE INTO `level_cap` (`id`, `level`, `changed_at`, `changed_by`) VALUES (1, %u, NOW(), '%s')",
+        "UPDATE `level_cap` SET `level` = %u, `changed_at` = NOW(), `changed_by` = '%s' WHERE `id` = 1",
         level, by.c_str());
     s_levelCap.store(level, std::memory_order_relaxed);
     return true;
+}
+
+uint32 LevelCap::QuestGold()
+{
+    return s_levelCapQuestGold.load(std::memory_order_relaxed);
+}
+
+bool LevelCap::SetQuestGold(uint32 percent, char const* changedBy)
+{
+    if (!LevelCapTablePresent() || !LevelCapQuestGoldPresent())
+        return false;
+
+    percent = std::min(percent, QUEST_GOLD_MAX);
+    std::string by = changedBy ? changedBy : "";
+    CharacterDatabase.escape_string(by);
+    CharacterDatabase.DirectPExecute(
+        "UPDATE `level_cap` SET `quest_gold` = %u, `changed_at` = NOW(), `changed_by` = '%s' WHERE `id` = 1",
+        percent, by.c_str());
+    s_levelCapQuestGold.store(percent, std::memory_order_relaxed);
+    return true;
+}
+
+// The max-level gold was sized for level 60: for quests of level 10 to 20 it
+// is 5 to 30 times the quest's own gold. Squared by quest level, 100% adds
+// about half the own gold at 10 to 19 and as much again at 20 to 29.
+int32 LevelCap::QuestMoney(Quest const* quest, uint32 playerLevel)
+{
+    int32 const money = quest->GetRewMoneyMaxLevelAtComplete();
+    uint32 const max = sWorld.getConfig(CONFIG_UINT32_MAX_PLAYER_LEVEL);
+    if (money <= 0 || playerLevel >= max)
+        return money;
+
+    // A quest of level 0 takes the character's level.
+    uint32 const questLevel = std::min(quest->GetQuestLevel() ? quest->GetQuestLevel() : playerLevel, max);
+    double const scale = double(questLevel) / max;
+    return int32(money * scale * scale * QuestGold() / 100.0);
 }
 
 void Player::GiveXP(uint32 xp, Unit* victim)
@@ -16075,10 +16140,11 @@ void Player::RewardQuest(Quest const *pQuest, uint32 reward, WorldObject* questE
         XP *= sWorld.getConfig(CONFIG_FLOAT_RATE_XP_QUEST);
 
 
-    // The level cap: a quest at the cap pays the max-level gold, as at 60.
+    // The level cap: a quest at the cap pays gold in place of XP, scaled
+    // below MaxPlayerLevel (LevelCap::QuestMoney).
     if (GetLevel() < LevelCap::Get())
         GiveXP(HasChallenge(CHALLENGE_WAR_MODE) ? XP * 1.2F : XP, nullptr);
-    else if (int32 money = pQuest->GetRewMoneyMaxLevelAtComplete())
+    else if (int32 money = LevelCap::QuestMoney(pQuest, GetLevel()))
         LogModifyMoney(money, "QuestMaxLevel", questEnder->GetObjectGuid(), quest_id);
 
     // Give player extra money if GetRewOrReqMoney > 0 and get ReqMoney if negative
@@ -17302,7 +17368,7 @@ void Player::SendQuestReward(Quest const *pQuest, uint32 XP, Object * questGiver
     else
     {
         data << uint32(0);
-        data << uint32(pQuest->GetRewOrReqMoney() + pQuest->GetRewMoneyMaxLevelAtComplete());
+        data << uint32(pQuest->GetRewOrReqMoney() + LevelCap::QuestMoney(pQuest, GetLevel()));
     }
     data << uint32(pQuest->GetRewItemsCount());             // max is 5
 
