@@ -459,7 +459,9 @@ namespace ai
 
     // A hostile mob not in the fight yet, standing or walking, within its aggro
     // radius + 5 yd of the bot. Checked once a second. Not while the bot already
-    // stands at its master, or was told to stay or guard.
+    // stands at its master, or was told to stay or guard. Not for a melee bot in a
+    // fight: it stands at its target, often near the next pack, and a rogue ran
+    // back and forth between its target and its master (2026-10-22).
     class IdleMobNearTrigger : public Trigger
     {
     public:
@@ -472,6 +474,9 @@ namespace ai
                 return false;
 
             if (ai->HasStrategy("stay", ai->GetState()) || ai->HasStrategy("guard", ai->GetState()))
+                return false;
+
+            if (ai->IsStateActive(BotState::BOT_STATE_COMBAT) && !ai->IsRanged(bot) && !ai->IsHeal(bot))
                 return false;
 
             if (sServerFacade.GetDistance2d(bot, master) <= sPlayerbotAIConfig.followDistance + 2.0f)

@@ -26,7 +26,7 @@ std::list<Unit*> ai::IdleHostiles(PlayerbotAI* ai)
     return idle;
 }
 
-bool ai::InIdleAggro(const std::list<Unit*>& idle, Player* bot, float x, float y, float z, float margin)
+Unit* ai::IdleAggroUnit(const std::list<Unit*>& idle, Player* bot, float x, float y, float z, float margin)
 {
     for (Unit* unit : idle)
     {
@@ -34,10 +34,15 @@ bool ai::InIdleAggro(const std::list<Unit*>& idle, Player* bot, float x, float y
             continue;
 
         if (sServerFacade.GetDistance2d(unit, x, y) < unit->GetAttackDistance(bot) + margin)
-            return true;
+            return unit;
     }
 
-    return false;
+    return nullptr;
+}
+
+bool ai::InIdleAggro(const std::list<Unit*>& idle, Player* bot, float x, float y, float z, float margin)
+{
+    return IdleAggroUnit(idle, bot, x, y, z, margin) != nullptr;
 }
 
 void FleeManager::calculateDistanceToCreatures(FleePoint *point)

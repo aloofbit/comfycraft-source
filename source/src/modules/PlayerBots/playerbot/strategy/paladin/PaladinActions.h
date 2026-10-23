@@ -586,6 +586,13 @@ namespace ai
 		virtual std::string getName() override { return "cleanse magic on party"; }
 	};
 
+	class CastCleanseMagicCcOnPartyAction : public CurePartyMemberAction
+	{
+	public:
+		CastCleanseMagicCcOnPartyAction(PlayerbotAI* ai) : CurePartyMemberAction(ai, "cleanse", DISPEL_MAGIC, true) {}
+		virtual std::string getName() override { return "cleanse magic cc on party"; }
+	};
+
 	SPELL_ACTION(CastExorcismAction, "exorcism");
 
     BEGIN_SPELL_ACTION(CastAvengersShieldAction, "avenger's shield")

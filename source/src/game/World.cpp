@@ -103,6 +103,7 @@
 #include <ace/OS_NS_dirent.h>
 #include "PerformanceMonitor.h"
 #include "LevelCap.h"
+#include "DungeonTuning.h"
 #include "LootLuck.h"
 #include "LootRates.h"
 #include "DungeonRun.h"
@@ -2351,6 +2352,10 @@ void LoadPlayerEggLoot();
     sLog.outString("Loading the level cap...");
     if (uint32 cap = LevelCap::Load())
         sLog.outString(">> Level cap: %u.", cap);
+    sLog.outString("Loading dungeon tuning...");
+    if (DungeonTuning::Load() && (DungeonTuning::HealthPct() != 100 || DungeonTuning::DamagePct() != 100 || DungeonTuning::MapCount()))
+        sLog.outString(">> Dungeon tuning: health %u%%, damage %u%%. %u dungeons have their own.",
+            DungeonTuning::HealthPct(), DungeonTuning::DamagePct(), DungeonTuning::MapCount());
     sLog.outString("Loading loot luck...");
     if (LootLuck::Load())
         sLog.outString(">> Loot luck: PRD on quest drops is on.");

@@ -8,8 +8,8 @@ using namespace ai;
 class PartyMemberToDispelPredicate : public FindPlayerPredicate, public PlayerbotAIAware
 {
 public:
-    PartyMemberToDispelPredicate(PlayerbotAI* ai, uint32 dispelType) :
-        PlayerbotAIAware(ai), FindPlayerPredicate(), dispelType(dispelType) {}
+    PartyMemberToDispelPredicate(PlayerbotAI* ai, uint32 dispelType, bool lossOfControlOnly) :
+        PlayerbotAIAware(ai), FindPlayerPredicate(), dispelType(dispelType), lossOfControlOnly(lossOfControlOnly) {}
 
 public:
     virtual bool Check(Unit* unit) override
@@ -18,17 +18,18 @@ public:
         if (pet && (pet->getPetType() == MINI_PET || pet->getPetType() == SUMMON_PET))
             return false;
 
-        return sServerFacade.IsAlive(unit) && sServerFacade.GetDistance2d(ai->GetBot(), unit) <= ai->GetRange("spell") && ai->HasAuraToDispel(unit, dispelType);
+        return sServerFacade.IsAlive(unit) && sServerFacade.GetDistance2d(ai->GetBot(), unit) <= ai->GetRange("spell") && ai->HasAuraToDispel(unit, dispelType, lossOfControlOnly);
     }
 
 private:
     uint32 dispelType;
+    bool lossOfControlOnly;
 };
 
 Unit* PartyMemberToDispel::Calculate()
 {
     uint32 dispelType = atoi(qualifier.c_str());
 
-    PartyMemberToDispelPredicate predicate(ai, dispelType);
+    PartyMemberToDispelPredicate predicate(ai, dispelType, lossOfControlOnly);
     return FindPartyMember(predicate);
 }

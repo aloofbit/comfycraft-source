@@ -36,6 +36,7 @@
 #include "ObjectMgr.h"
 #include "Group/Group.h"
 #include "Chat/Chat.h"
+#include "Invasion/InvasionMgr.h"
 
 namespace
 {
@@ -101,6 +102,15 @@ bool Playerbot_RecruitBotForPlayer(Player* player, uint32 role, uint32 classId, 
 
     if (role == SO_RECRUIT_DISMISS)
         return DismissAll(player, chat);
+
+    // An invasion is one against one. The sigil refuses an invader who has
+    // companions (InvasionMgr.cpp, CanInvadeFrom); this stops them hiring one
+    // after it fires. Dismissing, above, is always allowed.
+    if (sInvasionMgr.IsInvading(player->GetObjectGuid()))
+    {
+        chat.SendSysMessage("Not while you are invading.");
+        return false;
+    }
 
     // classId is datalong2: a class the player picked from the gossip page, or
     // 0 for whoever fits the role. Until 2026-09-08 this was the level-search

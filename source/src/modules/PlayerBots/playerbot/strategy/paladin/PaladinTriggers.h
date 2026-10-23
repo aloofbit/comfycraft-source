@@ -487,6 +487,12 @@ namespace ai
         CleanseCurePartyMemberMagicTrigger(PlayerbotAI* ai) : PartyMemberNeedCureTrigger(ai, "cleanse", DISPEL_MAGIC) {}
     };
 
+    class CleanseCurePartyMemberMagicCcTrigger : public PartyMemberNeedCureTrigger
+    {
+    public:
+        CleanseCurePartyMemberMagicCcTrigger(PlayerbotAI* ai) : PartyMemberNeedCureTrigger(ai, "cleanse", DISPEL_MAGIC, true) {}
+    };
+
     class HammerOfJusticeEnemyHealerTrigger : public InterruptEnemyHealerTrigger
     {
     public:

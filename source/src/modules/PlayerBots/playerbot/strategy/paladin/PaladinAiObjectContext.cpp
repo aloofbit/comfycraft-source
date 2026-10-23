@@ -277,6 +277,7 @@ namespace ai
                 creators["cleanse party member cure poison"] = [](PlayerbotAI* ai) { return new CleanseCurePartyMemberPoisonTrigger(ai); };
                 creators["cleanse cure magic"] = [](PlayerbotAI* ai) { return new CleanseCureMagicTrigger(ai); };
                 creators["cleanse party member cure magic"] = [](PlayerbotAI* ai) { return new CleanseCurePartyMemberMagicTrigger(ai); };
+                creators["cleanse party member cure magic cc"] = [](PlayerbotAI* ai) { return new CleanseCurePartyMemberMagicCcTrigger(ai); };
                 creators["righteous fury"] = [](PlayerbotAI* ai) { return new RighteousFuryTrigger(ai); };
                 creators["holy shield"] = [](PlayerbotAI* ai) { return new HolyShieldTrigger(ai); };
                 creators["hammer of justice on enemy healer"] = [](PlayerbotAI* ai) { return new HammerOfJusticeEnemyHealerTrigger(ai); };
@@ -374,6 +375,7 @@ namespace ai
                 creators["cleanse poison on party"] = [](PlayerbotAI* ai) { return new CastCleansePoisonOnPartyAction(ai); };
                 creators["cleanse disease on party"] = [](PlayerbotAI* ai) { return new CastCleanseDiseaseOnPartyAction(ai); };
                 creators["cleanse magic on party"] = [](PlayerbotAI* ai) { return new CastCleanseMagicOnPartyAction(ai); };
+                creators["cleanse magic cc on party"] = [](PlayerbotAI* ai) { return new CastCleanseMagicCcOnPartyAction(ai); };
                 creators["purify poison on party"] = [](PlayerbotAI* ai) { return new CastPurifyPoisonOnPartyAction(ai); };
                 creators["purify disease on party"] = [](PlayerbotAI* ai) { return new CastPurifyDiseaseOnPartyAction(ai); };
                 creators["seal of wisdom"] = [](PlayerbotAI* ai) { return new CastSealOfWisdomAction(ai); };

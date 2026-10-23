@@ -13,6 +13,7 @@
 #include "CustomMerchantMgr.h"
 #include "Moonstones.h"
 #include "LevelCap.h"
+#include "DungeonTuning.h"
 #include "LootLuck.h"
 #include "LootRates.h"
 #include "BotNpc.h"
@@ -4039,6 +4040,44 @@ bool ComfyCommands::HandleLevelCapCommand(ChatHandler* handler, char* args)
     return true;
 }
 
+// Dungeon tuning (Objects/DungeonTuning.h). With no argument it re-reads
+// tw_char.dungeon_tuning and dungeon_tuning_map, which is what the website
+// sends after it writes them. With two percentages it writes the pair for
+// every dungeon; a dungeon's own pair is set on the website. A creature takes the new
+// health and melee damage when it next spawns; spell damage changes at once.
+bool ComfyCommands::HandleDungeonTuningCommand(ChatHandler* handler, char* args)
+{
+    if (*args)
+    {
+        uint32 health;
+        uint32 damage;
+        if (!handler->ExtractUInt32(&args, health) || !handler->ExtractUInt32(&args, damage))
+            return false;
+
+        if (health < DungeonTuning::MinPct || health > DungeonTuning::MaxPct ||
+            damage < DungeonTuning::MinPct || damage > DungeonTuning::MaxPct)
+        {
+            handler->PSendSysMessage("Each value is a percentage from %u to %u.", DungeonTuning::MinPct, DungeonTuning::MaxPct);
+            handler->SetSentErrorMessage(true);
+            return false;
+        }
+
+        char const* by = handler->m_session ? handler->m_session->GetPlayerName() : "console";
+        if (!DungeonTuning::Set(health, damage, by))
+        {
+            handler->SendSysMessage("No `dungeon_tuning` table. Apply sql/custom/190_dungeon_tuning.sql to tw_char.");
+            handler->SetSentErrorMessage(true);
+            return false;
+        }
+    }
+    else
+        DungeonTuning::Load();
+
+    handler->PSendSysMessage("Dungeon tuning: health %u%%, damage %u%%. %u dungeons have their own.",
+        DungeonTuning::HealthPct(), DungeonTuning::DamagePct(), DungeonTuning::MapCount());
+    return true;
+}
+
 // Bad-luck protection on quest drops (LootLuck.h). With no argument it
 // re-reads tw_char.loot_luck, which is what the website sends after it writes
 // the row. "on" and "off" write the row. "log on" and "log off" write a line
@@ -4082,8 +4121,9 @@ bool ComfyCommands::HandleLootLuckCommand(ChatHandler* handler, char* args)
 bool ComfyCommands::HandleLootRatesCommand(ChatHandler* handler, char* /*args*/)
 {
     bool const fromTable = LootRates::Load();
-    handler->PSendSysMessage("Loot rates (%s): green gear x%g, blue world drops x%g, from level 50 x%g.",
-        fromTable ? "loot_rates" : "mangosd.conf", LootRates::Green(), LootRates::Rare(false), LootRates::Rare(true));
+    handler->PSendSysMessage("Loot rates (%s): green gear x%g, in dungeons x%g; BoE blues x%g, in dungeons x%g, from level 50 x%g; worn gear %g%%.",
+        fromTable ? "loot_rates" : "mangosd.conf", LootRates::Green(false), LootRates::Green(true),
+        LootRates::Rare(false, false), LootRates::Rare(false, true), LootRates::Rare(true, false), LootRates::WornGear());
     return true;
 }
 
@@ -15414,6 +15454,7 @@ namespace
         { "gear",              ".gear replace | fill | bags  any | green | blue | epic [spec] [name]   random gear for the level" },
         { "setspeed",          ".setspeed <rate> [name]   walk, run and swim speed, 1 is normal, until the next login" },
         { "levelcap",          ".levelcap [level]   the level XP stops at, or set it (0 is none)" },
+        { "dungeontuning",     ".dungeontuning [health% damage%]   dungeon creature health and damage, or set them (100 is stock)" },
         { "lootluck",          ".lootluck [on | off | log on | log off]   bad-luck protection on quest drops, or set it" },
         { "lootrates",         ".lootrates   re-read the gear drop rates and show them" },
         { "flightmode",        ".flightmode [on | off]   whether GM flight is on, or set it" },
@@ -19658,6 +19699,21 @@ bool ChatHandler::HandleReloadCreatureTemplateCommand(char* args)
 // EventAI events must be loaded right after.
 bool ChatHandler::HandleReloadEventAIEventsCommand(char* args)
 {
+    // Drain first, as HandleReloadGossipScriptsCommand does. LoadScripts returns
+    // early while any script action is scheduled, and the events then reload
+    // against the old creature_ai_scripts: an event whose script is new is
+    // dropped as "non-existent script" (measured 2026-10-22).
+    if (uint32 dropped = sMapMgr.ClearAllScheduledScripts())
+        PSendSysMessage("Dropped %u pending script action(s) first.", dropped);
+
+    if (sScriptMgr.IsScriptScheduled())
+    {
+        SendSysMessage("Script actions are still outstanding after draining every map -- "
+                       "the scheduled-script count is leaking. Not reloading.");
+        SetSentErrorMessage(true);
+        return false;
+    }
+
     sEventAIMgr.ClearEventData();
 
     if (*args != 'a')

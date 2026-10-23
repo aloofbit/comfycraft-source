@@ -27,6 +27,8 @@
 #include "WorldSession.h"
 #include "Util.h"
 #include "DBCStores.h"
+#include "Group.h"
+#include "ModuleSlots.h"
 
 #include <cmath>
 #include <cstdio>
@@ -161,9 +163,9 @@ namespace
     // This is the shared half of both gates; the asymmetric parts (a cooldown
     // for the invader, a level bracket for the defender) live at the call
     // sites.
-    // NOT Player const*. The bot test below is Player::AI(), which is a
-    // non-const accessor -- so a const pointer cannot ask the one question
-    // that keeps companions out of the pool.
+    // THE BOT TEST IS THE MODULE SLOT, not Player::AI(). A bot keeps its AI in
+    // MODULE_SLOT_BOT_AI and Player::AI() is empty for it; until 2026-10-23
+    // this asked AI(), and companions could be found as defenders.
     bool IsAvailableForInvasion(Player* player)
     {
         if (!player || !player->IsInWorld() || !player->GetSession())
@@ -174,7 +176,7 @@ namespace
 
         // A GM is invisible half the time and immune the rest of it; a bot is
         // somebody's companion standing next to them, which is not a fight.
-        if (player->IsGameMaster() || player->AI())
+        if (player->IsGameMaster() || player->GetModuleSlot(MODULE_SLOT_BOT_AI))
             return false;
 
         // THE HARDCORE TRAP. ResurrectPlayer refuses outright for a hardcore
@@ -190,9 +192,8 @@ namespace
         if (player->InBattleGround() || !player->GetMap() || player->GetMap()->Instanceable())
             return false;
 
-        // NO SANCTUARY CHECK HERE. It is a DEFENDER-side rule and lives in
-        // IsValidDefender -- see the comment there for why the two ends are not
-        // symmetric.
+        // NO SANCTUARY CHECK HERE, on either side: the two are hostile in a
+        // town for as long as they fight (AreFoes).
         return true;
     }
 }
@@ -233,6 +234,23 @@ bool InvasionManager::Withdraw(Player* invader)
     return false;
 }
 
+bool InvasionManager::AreFoes(ObjectGuid a, ObjectGuid b) const
+{
+    for (auto const& inv : m_invasions)
+        if (inv.phase == PHASE_FIGHTING &&
+            ((inv.invader == a && inv.defender == b) || (inv.invader == b && inv.defender == a)))
+            return true;
+    return false;
+}
+
+bool InvasionManager::IsInvading(ObjectGuid guid) const
+{
+    for (auto const& inv : m_invasions)
+        if (inv.invader == guid)
+            return true;
+    return false;
+}
+
 bool InvasionManager::IsInvolved(ObjectGuid guid) const
 {
     for (auto const& inv : m_invasions)
@@ -267,6 +285,23 @@ bool InvasionManager::CanInvadeFrom(Player* invader) const
     {
         Tell(invader, "Not while you are fighting.");
         return false;
+    }
+
+    // AN INVASION IS ONE AGAINST ONE. Companions follow their owner across the
+    // world within seconds, so a party would land three or four strong. Any bot
+    // in the group counts, a companion or an invited random bot. Hiring one
+    // mid-invasion is refused at the other end (RecruitBot.cpp, IsInvading).
+    if (Group* group = invader->GetGroup())
+    {
+        for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+        {
+            Player* member = ref->getSource();
+            if (member && member != invader && member->GetModuleSlot(MODULE_SLOT_BOT_AI))
+            {
+                Tell(invader, "Send your companions home first.");
+                return false;
+            }
+        }
     }
 
     // YOU CAN SET OUT FROM A SANCTUARY, and this used to refuse. Sanctuary
@@ -309,15 +344,8 @@ bool InvasionManager::IsValidDefender(Player* invader, Player* target) const
     if (!target->IsPvP())
         return false;
 
-    // SANCTUARY IS A DEFENDER-SIDE RULE, and it is not politeness -- it is a
-    // broken match. GetReactionTo returns FRIENDLY when both players carry
-    // PLAYER_FLAGS_SANCTUARY, so an invasion that LANDS in a city or town
-    // cannot be fought at all: the two would simply stand there until the
-    // clock ran out. The invader's own sanctuary does not matter, because they
-    // are leaving it. The flag is maintained by the factionless sanctuary code
-    // in Player::UpdateArea, which covers capitals and towns both.
-    if (target->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_SANCTUARY))
-        return false;
+    // A DEFENDER IN A TOWN IS FAIR GAME. Sanctuary makes two players friendly
+    // in GetReactionTo, but not an invader and their defender (AreFoes).
 
     uint32 const range = sWorld.getConfig(CONFIG_UINT32_INVASION_LEVEL_RANGE);
     uint32 const mine = invader->GetLevel();
@@ -842,8 +870,9 @@ void InvasionManager::Update(uint32 diff)
                 if (inv.timer)
                     break;
 
-                // The five seconds of warning are exactly long enough to walk
-                // into a city, so the whole gate is re-run rather than trusted.
+                // Five seconds is long enough for the defender to change (die,
+                // zone into a dungeon), so the whole gate is re-run rather than
+                // trusted.
                 if (!defender || !IsValidDefender(invader, defender) ||
                     !IsAvailableForInvasion(invader))
                 {
@@ -852,10 +881,9 @@ void InvasionManager::Update(uint32 diff)
 
                     // NOTHING IS CHARGED TO EITHER SIDE. The invader may go
                     // straight back out -- they never got a fight. The defender
-                    // gets no respite either: walking into a city to shake
-                    // somebody is good play and it worked, but it must not also
-                    // buy five minutes of being unfindable, or it becomes the
-                    // whole game.
+                    // gets no respite either: escaping the search is good play,
+                    // but it must not also buy five minutes of being unfindable,
+                    // or it becomes the whole game.
                     m_invasions.erase(m_invasions.begin() + i);
                     continue;
                 }
@@ -865,11 +893,9 @@ void InvasionManager::Update(uint32 diff)
             }
             case PHASE_FIGHTING:
             {
-                // A defender who walks into a sanctuary, zones into an instance
-                // or logs out ends the match rather than standing in one place
-                // being unkillable.
+                // A defender who zones into an instance or logs out ends the
+                // match. A town does not: the fight goes on there (AreFoes).
                 if (!defender || !defender->IsInWorld() ||
-                    defender->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_SANCTUARY) ||
                     (defender->GetMap() && defender->GetMap()->Instanceable()))
                 {
                     inv.leaveKit = ESCAPE_KIT;

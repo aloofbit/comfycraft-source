@@ -377,6 +377,8 @@ public:
     void QueueOwnCommand(const std::string& text);
     // `.ccdebug quiet`: the engine's debug lines go to the file only, not to chat.
     void SetDebugQuiet(bool on) { debugQuiet = on; }
+    // A companion's strategy lists, for the website (/admin/companions).
+    void WriteStrategiesFile();
     void QueueChatResponse(uint32 msgType, ObjectGuid guid1, ObjectGuid guid2, std::string message, std::string chanName, std::string name, bool noDelay = false);
 	void HandleBotOutgoingPacket(const WorldPacket& packet);
     void HandleMasterIncomingPacket(const WorldPacket& packet);
@@ -486,7 +488,7 @@ public:
     uint8 GetManaPercent() const;
 
     virtual bool IsInterruptableSpellCasting(Unit* player, std::string spell, uint8 effectMask);
-    virtual bool HasAuraToDispel(Unit* player, uint32 dispelType);
+    virtual bool HasAuraToDispel(Unit* player, uint32 dispelType, bool lossOfControlOnly = false);
     bool canDispel(const SpellEntry* entry, uint32 dispelType);
     static bool IsHealSpell(const SpellEntry* entry);
 
@@ -885,6 +887,8 @@ protected:
     time_t lastHealCast = 0;
     bool tightFollow = false;
     bool debugQuiet = false;
+    std::string strategiesWritten;  // what companion-logs/<name>.strategies holds
+    uint32 strategiesCheckMs = 0;   // when WriteStrategiesFile last looked, 0 = never
     time_t ownerMapAwaySince = 0; // a companion on another map than its owner, 0 = same map
     time_t underOwnerSince = 0;   // a companion fallen below its owner, 0 = not
     time_t farFromOwnerSince = 0; // a companion past CompanionTeleportDistance, 0 = not

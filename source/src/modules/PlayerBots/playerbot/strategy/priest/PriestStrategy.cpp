@@ -249,6 +249,12 @@ void PriestCureStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     CureStrategy::InitCombatTriggers(triggers);
 
+    // A sleeping or stunned player does nothing, so waking one beats a light
+    // heal. A medium heal still goes first.
+    triggers.push_back(new TriggerNode(
+        "dispel magic cc on party",
+        NextAction::array(0, new NextAction("dispel magic cc on party", ACTION_LIGHT_HEAL + 5), NULL)));
+
     triggers.push_back(new TriggerNode(
         "dispel magic",
         NextAction::array(0, new NextAction("dispel magic", ACTION_DISPEL + 3), NULL)));
@@ -801,6 +807,12 @@ void PriestAoeRaidStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& trigg
 void PriestCureStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     CureStrategy::InitCombatTriggers(triggers);
+
+    // A sleeping or stunned player does nothing, so waking one beats a light
+    // heal. A medium heal still goes first.
+    triggers.push_back(new TriggerNode(
+        "dispel magic cc on party",
+        NextAction::array(0, new NextAction("dispel magic cc on party", ACTION_LIGHT_HEAL + 5), NULL)));
 
     triggers.push_back(new TriggerNode(
         "dispel magic",
@@ -1384,6 +1396,12 @@ void PriestAoeRaidStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& trigg
 void PriestCureStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     CureStrategy::InitCombatTriggers(triggers);
+
+    // A sleeping or stunned player does nothing, so waking one beats a light
+    // heal. A medium heal still goes first.
+    triggers.push_back(new TriggerNode(
+        "dispel magic cc on party",
+        NextAction::array(0, new NextAction("dispel magic cc on party", ACTION_LIGHT_HEAL + 5), NULL)));
 
     triggers.push_back(new TriggerNode(
         "dispel magic",

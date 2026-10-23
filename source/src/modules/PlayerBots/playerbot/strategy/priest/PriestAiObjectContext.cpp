@@ -174,6 +174,7 @@ namespace ai
                 creators["shadow word: pain on attacker"] = [](PlayerbotAI* ai) { return new PowerWordPainOnAttackerTrigger(ai); };
                 creators["dispel magic"] = [](PlayerbotAI* ai) { return new DispelMagicTrigger(ai); };
                 creators["dispel magic on party"] = [](PlayerbotAI* ai) { return new DispelMagicPartyMemberTrigger(ai); };
+                creators["dispel magic cc on party"] = [](PlayerbotAI* ai) { return new DispelMagicCcPartyMemberTrigger(ai); };
                 creators["cure disease"] = [](PlayerbotAI* ai) { return new CureDiseaseTrigger(ai); };
                 creators["party member cure disease"] = [](PlayerbotAI* ai) { return new PartyMemberCureDiseaseTrigger(ai); };
                 creators["power word: fortitude"] = [](PlayerbotAI* ai) { return new PowerWordFortitudeTrigger(ai); };
@@ -249,6 +250,7 @@ namespace ai
                 creators["flash heal on party"] = [](PlayerbotAI* ai) { return new CastFlashHealOnPartyAction(ai); };
                 creators["dispel magic"] = [](PlayerbotAI* ai) { return new CastDispelMagicAction(ai); };
                 creators["dispel magic on party"] = [](PlayerbotAI* ai) { return new CastDispelMagicOnPartyAction(ai); };
+                creators["dispel magic cc on party"] = [](PlayerbotAI* ai) { return new CastDispelMagicCcOnPartyAction(ai); };
                 creators["dispel magic on target"] = [](PlayerbotAI* ai) { return new CastDispelMagicOnTargetAction(ai); };
                 creators["cure disease"] = [](PlayerbotAI* ai) { return new CastCureDiseaseAction(ai); };
                 creators["cure disease on party"] = [](PlayerbotAI* ai) { return new CastCureDiseaseOnPartyAction(ai); };

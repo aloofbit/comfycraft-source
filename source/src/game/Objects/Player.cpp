@@ -5288,11 +5288,10 @@ void Player::_SetCreateBits(UpdateMask *updateMask, Player *target) const
     }
 
     // And the same for your own view of yourself, which takes the branch above and so
-    // was missed the first time. It matters after a relog: the login path sets the PvP
-    // flag from the saved PLAYER_FLAGS_PVP_DESIRED bit and then strips that bit
-    // (Player.cpp:17088), leaving a flagged player whose PLAYER_FLAGS is exactly 0. So
-    // the field is in neither create block, and the player came back seeing their own
-    // ordinary faction PvP badge rather than the FFA one.
+    // was missed the first time. It matters after a relog: a player flagged on the
+    // timer (the PvPFlagged variable) comes back flagged with PLAYER_FLAGS exactly 0.
+    // So the field is in neither create block, and the player came back seeing their
+    // own ordinary faction PvP badge rather than the FFA one.
     if (IsPvP() && sWorld.getConfig(CONFIG_BOOL_FACTIONLESS_ENABLE))
         updateMask->SetBit(PLAYER_FLAGS);
 }
@@ -17637,11 +17636,9 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder *holder)
 
     SetUInt32Value(PLAYER_FLAGS, fields[11].GetUInt32());
 
+    // Keep the bit: removing it let the 5-minute timer drop a /pvp flag after a relog.
     if (HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_PVP_DESIRED))
-    {
         UpdatePvP(true);
-        RemoveFlag(PLAYER_FLAGS, PLAYER_FLAGS_PVP_DESIRED);
-    }
 
     SetInt32Value(PLAYER_FIELD_WATCHED_FACTION_INDEX, fields[45].GetInt32());
 
@@ -17966,6 +17963,9 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder *holder)
     _LoadSpells(holder->GetResult(PLAYER_LOGIN_QUERY_LOADSPELLS));
 
     _LoadPlayerVariables(holder->GetResult(PLAYER_LOGIN_QUERY_LOADVARIABLES));
+
+    if (GetPlayerVariable(PlayerVariables::PvPFlagged).value_or("0") == "1")
+        UpdatePvP(true);
 
     _LoadPlayerItemLogs(holder->GetResult(PLAYER_LOGIN_QUERY_ITEM_LOGS));
 
@@ -19558,11 +19558,12 @@ bool Player::SaveToDB(bool online, bool force, bool direct)
     uberInsert.addUInt32(GetUInt32Value(PLAYER_BYTES));
     uberInsert.addUInt32(GetUInt32Value(PLAYER_BYTES_2));
 
-    // Nostalrius: Fix toggled PvP flag after relog.
-    uint32 playerFlags = GetUInt32Value(PLAYER_FLAGS) & ~(PLAYER_FLAGS_PVP_DESIRED);
-    if (IsPvP())
-        playerFlags |= PLAYER_FLAGS_PVP_DESIRED;
-    uberInsert.addUInt32(playerFlags);
+    // PLAYER_FLAGS_PVP_DESIRED is saved as it is: it is the /pvp choice, and it
+    // holds the flag across a relog. A flag on the timer only (from attacking
+    // someone) goes in PvPFlagged, and the load gives it a fresh 5 minutes.
+    uberInsert.addUInt32(GetUInt32Value(PLAYER_FLAGS));
+    SetPlayerVariable(PlayerVariables::PvPFlagged,
+        IsPvP() && !HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_PVP_DESIRED) ? "1" : "0");
 
     if (!IsBeingTeleported())
     {

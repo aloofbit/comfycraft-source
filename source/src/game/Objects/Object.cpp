@@ -35,6 +35,8 @@
 #include "Util.h"
 #include "MapManager.h"
 #include "Housing/HouseMgr.h"
+#include "InvasionMgr.h"
+#include "DungeonTuning.h"
 #include "Log.h"
 #include "Transport.h"
 #include "TargetedMovementGenerator.h"
@@ -3698,7 +3700,9 @@ ReputationRank WorldObject::GetReactionTo(WorldObject const* target) const
                 if (selfPlayerOwner->IsInRaidWith(targetPlayerOwner))
                     return REP_FRIENDLY;
 
-                if (selfPlayerOwner->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_SANCTUARY) && targetPlayerOwner->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_SANCTUARY))
+                // ComfyCraft: an invader and their defender fight on in a town.
+                if (selfPlayerOwner->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_SANCTUARY) && targetPlayerOwner->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_SANCTUARY) &&
+                    !sInvasionMgr.AreFoes(selfPlayerOwner->GetObjectGuid(), targetPlayerOwner->GetObjectGuid()))
                     return REP_FRIENDLY;
 
                 // Hackfix because UNIT_BYTE2_FLAG_FFA_PVP is not implemented yet.
@@ -5114,7 +5118,11 @@ uint32 WorldObject::SpellDamageBonusDone(Unit* pVictim, SpellEntry const* spellP
 
     // Creature damage
     if (GetTypeId() == TYPEID_UNIT && !((Creature*)this)->IsPet())
+    {
         DoneTotalMod *= Creature::_GetSpellDamageMod(((Creature*)this)->GetCreatureInfo()->rank);
+        // Read at each cast, so a change applies to a dungeon at once.
+        DoneTotalMod *= DungeonTuning::DamageMod((Creature*)this);
+    }
 
     if (pUnit)
     {

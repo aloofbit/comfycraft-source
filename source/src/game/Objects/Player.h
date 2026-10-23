@@ -1146,7 +1146,8 @@ enum class PlayerVariables : uint32
     UnlockedSpecTabs,
     FreeTalentResets,
     OriginalSkinByte,
-    PendingChallengeMask
+    PendingChallengeMask,
+    PvPFlagged          // "1": flagged on the timer at save, not by /pvp
 };
 
 struct PlayerEggLoot

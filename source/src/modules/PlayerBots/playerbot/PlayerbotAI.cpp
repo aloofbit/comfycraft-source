@@ -310,6 +310,7 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
     // the bot heard (see HandleBotOutgoingPacket).
     DrainCommandInbox();
     DrainChatInbox();
+    WriteStrategiesFile();
 
     // LOOT WATCHDOG. Opening a corpse sets UNIT_FLAG_LOOTING, the kneel, and only
     // a loot release clears it. A bot has no client to close a loot window, so
@@ -1867,6 +1868,17 @@ void PlayerbotAI::RunCommand(uint32 type, const std::string& text, Player& fromP
             // attack order is a clean slate whichever mode preceded it.
             ChangeStrategy("-passive,-follow,-stay,-wander", BotState::BOT_STATE_COMBAT);
 
+            // AND END STAY OUT OF COMBAT TOO.
+            //
+            // `stay` sets itself in both engines. Clearing it from the combat
+            // engine alone freed the bot for the fight, and then the
+            // non-combat engine walked it back to its stay position and held
+            // it there while the player moved on. An attack order ends stay:
+            // stay out of the reaction and non-combat engines, the default
+            // movement (follow) back in. No "Welcome back!": the order is the
+            // reply.
+            EnsureDefaultMovementStrategy();
+
             if (!IsStateActive(BotState::BOT_STATE_COMBAT))
                 ChangeEngine(BotState::BOT_STATE_COMBAT);
 
@@ -3068,6 +3080,53 @@ std::list<std::string_view> PlayerbotAI::GetStrategies(BotState type)
     }
 
     return std::list<std::string_view>();
+}
+
+// A COMPANION'S STRATEGIES, FOR THE WEBSITE (2026-10-23). The console has no
+// channel back, so /admin/companions reads companion-logs/<name>.strategies:
+// one line per engine, `co a,b,c`, then nc, dead and react. A change from any
+// path (a chat toggle, ResetStrategies, an action) shows within 5 s, and the
+// file is written only when the text differs. It stays after logout.
+void PlayerbotAI::WriteStrategiesFile()
+{
+    const uint32 now = WorldTimer::getMSTime();
+    if (strategiesCheckMs && WorldTimer::getMSTimeDiff(strategiesCheckMs, now) < 5000)
+        return;
+    strategiesCheckMs = now;
+
+    if (!CompanionOwnership::IsCompanion(bot->GetGUIDLow()))
+        return;
+
+    static const char* const names[] = { "co", "nc", "dead", "react" };
+    static const BotState states[] = { BotState::BOT_STATE_COMBAT, BotState::BOT_STATE_NON_COMBAT,
+        BotState::BOT_STATE_DEAD, BotState::BOT_STATE_REACTION };
+
+    std::string text;
+    for (int i = 0; i < 4; ++i)
+    {
+        text += names[i];
+        char sep = ' ';
+        for (const std::string_view& s : GetStrategies(states[i]))
+        {
+            text += sep;
+            text.append(s.data(), s.size());
+            sep = ',';
+        }
+        text += '\n';
+    }
+
+    if (text == strategiesWritten)
+        return;
+
+    std::error_code ignored;
+    std::filesystem::create_directories("companion-logs", ignored);
+    const std::string path = std::string("companion-logs/") + bot->GetName() + ".strategies";
+    if (FILE* file = fopen(path.c_str(), "w"))
+    {
+        fputs(text.c_str(), file);
+        fclose(file);
+        strategiesWritten = text;
+    }
 }
 
 bool PlayerbotAI::CanDoSpecificAction(const std::string& name, bool isUseful, bool isPossible)
@@ -6491,11 +6550,16 @@ bool PlayerbotAI::IsInterruptableSpellCasting(Unit* target, std::string spell, u
 	return false;
 }
 
-bool PlayerbotAI::HasAuraToDispel(Unit* target, uint32 dispelType)
+bool PlayerbotAI::HasAuraToDispel(Unit* target, uint32 dispelType, bool lossOfControlOnly)
 {
     bool isFriend = sServerFacade.IsFriendlyTo(bot, target);
 	for (uint32 type = SPELL_AURA_NONE; type < TOTAL_AURAS; ++type)
 	{
+		// Sleep is a stun aura and polymorph is a confuse aura.
+		if (lossOfControlOnly && type != SPELL_AURA_MOD_STUN && type != SPELL_AURA_MOD_FEAR &&
+			type != SPELL_AURA_MOD_CONFUSE && type != SPELL_AURA_MOD_CHARM)
+			continue;
+
 		Unit::AuraList const& auras = target->GetAurasByType((AuraType)type);
 		for (Unit::AuraList::const_iterator itr = auras.begin(); itr != auras.end(); ++itr)
 		{
@@ -6510,8 +6574,10 @@ bool PlayerbotAI::HasAuraToDispel(Unit* target, uint32 dispelType)
 			if (!isPositiveSpell && !isFriend)
 				continue;
 
+			// Skip only this aura. A return here let any nearly expired
+			// debuff hide a sleep on the same player.
 			if (sPlayerbotAIConfig.dispelAuraDuration && aura->GetAuraDuration() && aura->GetAuraDuration() < (int32)sPlayerbotAIConfig.dispelAuraDuration)
-			    return false;
+			    continue;
 
 			if (canDispel(entry, dispelType))
 				return true;
@@ -8507,7 +8573,7 @@ static uint32 NpcCreature_List(ChatHandler* handler)
  *
  * THE BOT VERBS, MEANING THE SAME THING:
  *   place    a new copy here, saved (`.npc add`); on a selected copy, re-post it here
- *   move     the copy here for now; its saved spot does not change (`.npc move`)
+ *   move     the copy here, saved (`.npc spawn move`)
  *   reset    the copy back to its saved spot
  *   save     where the copy stands now becomes its saved spot
  *   unplace  delete the copy (`.npc delete`); the template stays
@@ -8756,13 +8822,13 @@ int ComfyCommands::NpcBotCreatureCommand(ChatHandler* handler, Player* me, std::
         if (action == "reset")
             unit->SetHomePosition(chosen->position.x, chosen->position.y, chosen->position.z, chosen->position.o);
         else
-            unit->SetHomePosition(me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(), me->GetOrientation());
+            writePost(unit, me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(), me->GetOrientation());
         standOnHome(unit);
 
         if (action == "reset")
             handler->PSendSysMessage("%s is back on its post.", name.c_str());
         else
-            handler->PSendSysMessage("%s is here for now. .npcbot save keeps it, .npcbot reset sends it home.", name.c_str());
+            handler->PSendSysMessage("%s: this is its post now.", name.c_str());
         return 1;
     }
 
@@ -8872,7 +8938,7 @@ bool ComfyCommands::HandleNpcBotCommand(ChatHandler* handler, char* args)
         handler->SendSysMessage("Usage: .npcbot place|move|reset|save|dress|menu|idle|emote|unplace|info <name, #id or c#>, or .npcbot list");
         handler->SendSysMessage("  .npcbot info [name]       its id, guid, menu, shop, quests and post");
         handler->SendSysMessage("  .npcbot place <name>      stand the design called <name> here, for good; also .npcbot add");
-        handler->SendSysMessage("  .npcbot move <name>       bring it here for now; its post does not change");
+        handler->SendSysMessage("  .npcbot move <name>       bring it here and make this its post");
         handler->SendSysMessage("  .npcbot reset <name>      send it back to its post");
         handler->SendSysMessage("  .npcbot save <name>       make where it is standing now its post");
         handler->SendSysMessage("  .npcbot dress <name>      re-wear the look on its design");
@@ -9581,20 +9647,17 @@ bool ComfyCommands::HandleNpcBotCommand(ChatHandler* handler, char* args)
     /*
      * ------------------------------------------------- move, reset, save
      *
-     * THREE VERBS FOR WHAT USED TO BE ONE, split 2026-09-16 when walking from
-     * the post arrived. `.npcbot move` used to move AND save, which was fine
-     * while the post only decided where an NPC stood after a restart. Now it is
-     * also what every "Walks from its post" line and every WalkOffset is
-     * measured from, so moving an NPC to look at something and saving its post
-     * have to be separate decisions:
-     *
      *   place   stand it here and make this its post (and make a body, the
-     *           first time)
-     *   move    bring it here for now. The post does not change, so its walks
-     *           still measure from home and a restart puts it back
+     *           first time). With a name and no selection it adds a copy
+     *   move    bring an existing copy here and make this its post
      *   reset   send it back to its post, facing the way the post faces
      *   save    make where it is standing NOW its post -- for when it has
      *           walked somewhere better than where it was put
+     *
+     * MOVE SAVES AGAIN since 2026-10-22. From 2026-09-16 it moved the NPC for
+     * now only, so that looking at a walk and changing its anchor were two
+     * decisions. In use it read as "move does not save": the NPC went back to
+     * the old post on the next restart.
      *
      * `move` and `save` differ in whose position they take: move uses yours,
      * save uses the NPC's.
@@ -9651,10 +9714,16 @@ bool ComfyCommands::HandleNpcBotCommand(ChatHandler* handler, char* args)
             return true;
         }
 
-        // move: facing the way you face, the way place stands it, and nothing saved.
-        bot->TeleportTo(me->GetMapId(), me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(),
-                        me->GetOrientation());
-        handler->PSendSysMessage("%s is here for now. .npcbot save keeps it, .npcbot reset sends it home.", name.c_str());
+        // move: facing the way you face, the way place stands it, and saved.
+        post.mapId = me->GetMapId();
+        post.x     = me->GetPositionX();
+        post.y     = me->GetPositionY();
+        post.z     = me->GetPositionZ();
+        post.o     = me->GetOrientation();
+        sBotNpcMgr.SaveSpawn(post);
+
+        bot->TeleportTo(post.mapId, post.x, post.y, post.z, post.o);
+        handler->PSendSysMessage("%s: this is its post now.", name.c_str());
         return true;
     }
 

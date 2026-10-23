@@ -12,6 +12,13 @@ namespace ai
     BUFF_ACTION(CastInnerFireAction, "inner fire");
     CURE_ACTION(CastDispelMagicAction, "dispel magic");
     CURE_PARTY_ACTION(CastDispelMagicOnPartyAction, "dispel magic", DISPEL_MAGIC);
+
+    class CastDispelMagicCcOnPartyAction : public CurePartyMemberAction
+    {
+    public:
+        CastDispelMagicCcOnPartyAction(PlayerbotAI* ai) : CurePartyMemberAction(ai, "dispel magic", DISPEL_MAGIC, true) {}
+        virtual std::string getName() override { return "dispel magic cc on party"; }
+    };
     SPELL_ACTION(CastDispelMagicOnTargetAction, "dispel magic");
     CC_ACTION(CastShackleUndeadAction, "shackle undead");
     SPELL_ACTION_U(CastManaBurnAction, "mana burn", AI_VALUE2(uint8, "mana", "self target") < 50 && AI_VALUE2(uint8, "mana", "current target") >= 20);

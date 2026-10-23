@@ -41,10 +41,10 @@
  * only fight each other because Factionless.Enable makes the PvP flag, rather
  * than the race, decide hostility (docs/features/factionless.md, piece 1).
  * Without that this would be Alliance-versus-Horde only, which halves the pool.
- * Sanctuary is the other half of that feature and it is a hard blocker rather
- * than a nuisance: two players in a sanctuary resolve FRIENDLY, so an invasion
- * that lands in one cannot be fought at all. Both ends are checked, twice --
- * at search time and again on arrival, because people walk.
+ * Sanctuary is the other half of that feature: two players in a town resolve
+ * FRIENDLY. An invader and their defender are the exception while they fight
+ * (AreFoes, asked from GetReactionTo), so an invasion can land in a town and
+ * a defender cannot shake the invader by walking into one.
  */
 
 #ifndef MANGOSSERVER_INVASIONMGR_H
@@ -90,6 +90,15 @@ class InvasionManager
         bool OnPlayerLogout(Player* player);
 
         bool IsInvolved(ObjectGuid guid) const;
+
+        // The invader's side only, from the sigil until they are home again.
+        // RecruitBot.cpp asks it: no companion may be hired mid-invasion.
+        bool IsInvading(ObjectGuid guid) const;
+
+        // THE TWO SIDES OF A FIGHT, in either order. GetReactionTo asks this
+        // only when both players stand in a sanctuary, and a true answer makes
+        // them hostile there. Nobody else in the town can join in.
+        bool AreFoes(ObjectGuid a, ObjectGuid b) const;
 
         // RELEASE SPIRIT, for a defender who fell in the fight: the ghost stays
         // over the body instead of going to a graveyard, and the client offers

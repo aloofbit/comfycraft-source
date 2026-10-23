@@ -13,6 +13,8 @@ namespace ai
     // A point inside the aggro radius of one of them, plus margin, pulls a new pack.
     // A mob more than 10 yd above or below the point is on another floor and is skipped.
     bool InIdleAggro(const std::list<Unit*>& idle, Player* bot, float x, float y, float z, float margin = 3.0f);
+    // The first of them that InIdleAggro finds, or null.
+    Unit* IdleAggroUnit(const std::list<Unit*>& idle, Player* bot, float x, float y, float z, float margin = 3.0f);
 
     // A spot for a companion on a ring around its master, on the side it already
     // stands. False when none passes; `note` says where.

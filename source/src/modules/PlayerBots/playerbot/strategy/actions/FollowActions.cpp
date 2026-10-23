@@ -277,6 +277,19 @@ bool AvoidPatrolAction::Execute(Event& event)
 
     const bool explain = ai->HasStrategy("debug", BotState::BOT_STATE_NON_COMBAT);
 
+    // The mob the trigger saw, with its distance from the bot in whole yards.
+    std::string from;
+    if (explain)
+    {
+        Unit* mob = IdleAggroUnit(IdleHostiles(ai), bot, bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(), 5.0f);
+        if (mob)
+        {
+            std::ostringstream out;
+            out << " (from " << mob->GetName() << ", " << uint32(sServerFacade.GetDistance2d(bot, mob) + 0.5f) << " yd)";
+            from = out.str();
+        }
+    }
+
     if (ai->IsRanged(bot) || ai->IsHeal(bot))
     {
         float rx, ry, rz;
@@ -284,14 +297,14 @@ bool AvoidPatrolAction::Execute(Event& event)
         if (FindMasterRingSpot(ai, rx, ry, rz, note))
         {
             if (explain)
-                ai->TellPlayerNoFacing(master, "patrol: to a spot " + note);
+                ai->TellPlayerNoFacing(master, "patrol: to a spot " + note + from);
 
             return MoveTo(bot->GetMapId(), rx, ry, rz, false, false, false, true);
         }
     }
 
     if (explain)
-        ai->TellPlayerNoFacing(master, "patrol: to " + std::string(master->GetName()));
+        ai->TellPlayerNoFacing(master, "patrol: to " + std::string(master->GetName()) + from);
 
     return MoveNear(master, sPlayerbotAIConfig.followDistance);
 }

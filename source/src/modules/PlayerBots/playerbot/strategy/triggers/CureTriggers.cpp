@@ -14,7 +14,7 @@ bool NeedCureTrigger::IsActive()
 
 Value<Unit*>* PartyMemberNeedCureTrigger::GetTargetValue()
 {
-	return context->GetValue<Unit*>("party member to dispel", dispelType);
+	return context->GetValue<Unit*>(lossOfControlOnly ? "party member to dispel cc" : "party member to dispel", dispelType);
 }
 
 bool NeedWorldBuffTrigger::IsActive()

@@ -12,6 +12,12 @@ namespace ai
     DEBUFF_TRIGGER(VampiricEmbraceTrigger, "vampiric embrace");
     CURE_TRIGGER(DispelMagicTrigger, "dispel magic", DISPEL_MAGIC);
     CURE_PARTY_TRIGGER(DispelMagicPartyMemberTrigger, "dispel magic", DISPEL_MAGIC);
+
+    class DispelMagicCcPartyMemberTrigger : public PartyMemberNeedCureTrigger
+    {
+    public:
+        DispelMagicCcPartyMemberTrigger(PlayerbotAI* ai) : PartyMemberNeedCureTrigger(ai, "dispel magic", DISPEL_MAGIC, true) {}
+    };
     CURE_TRIGGER(CureDiseaseTrigger, "cure disease", DISPEL_DISEASE);
     CURE_PARTY_TRIGGER(PartyMemberCureDiseaseTrigger, "cure disease", DISPEL_DISEASE);
     BUFF_TRIGGER_A(InnerFireTrigger, "inner fire");

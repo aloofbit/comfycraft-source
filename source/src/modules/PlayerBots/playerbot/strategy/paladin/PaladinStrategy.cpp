@@ -212,6 +212,11 @@ void PaladinCureStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     CureStrategy::InitCombatTriggers(triggers);
 
+    // Waking a sleeping or stunned player beats a light heal; see PriestCureStrategy.
+    triggers.push_back(new TriggerNode(
+        "cleanse party member cure magic cc",
+        NextAction::array(0, new NextAction("cleanse magic cc on party", ACTION_LIGHT_HEAL + 5), NULL)));
+
     triggers.push_back(new TriggerNode(
         "rooted",
         NextAction::array(0, new NextAction("blessing of freedom", ACTION_DISPEL), NULL)));
@@ -815,6 +820,11 @@ void PaladinCureStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     CureStrategy::InitCombatTriggers(triggers);
 
+    // Waking a sleeping or stunned player beats a light heal; see PriestCureStrategy.
+    triggers.push_back(new TriggerNode(
+        "cleanse party member cure magic cc",
+        NextAction::array(0, new NextAction("cleanse magic cc on party", ACTION_LIGHT_HEAL + 5), NULL)));
+
     triggers.push_back(new TriggerNode(
         "rooted",
         NextAction::array(0, new NextAction("blessing of freedom", ACTION_DISPEL), NULL)));
@@ -1375,6 +1385,11 @@ void PaladinAoeRaidStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& trig
 void PaladinCureStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     CureStrategy::InitCombatTriggers(triggers);
+
+    // Waking a sleeping or stunned player beats a light heal; see PriestCureStrategy.
+    triggers.push_back(new TriggerNode(
+        "cleanse party member cure magic cc",
+        NextAction::array(0, new NextAction("cleanse magic cc on party", ACTION_LIGHT_HEAL + 5), NULL)));
 
     triggers.push_back(new TriggerNode(
         "rooted",

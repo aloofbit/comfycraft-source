@@ -265,16 +265,17 @@ namespace ai
     class CurePartyMemberAction : public CastSpellAction, public PartyMemberActionNameSupport
     {
     public:
-        CurePartyMemberAction(PlayerbotAI* ai, std::string spell, uint32 dispelType) : CastSpellAction(ai, spell), PartyMemberActionNameSupport(spell), dispelType(dispelType) {}
-    
+        CurePartyMemberAction(PlayerbotAI* ai, std::string spell, uint32 dispelType, bool lossOfControlOnly = false) : CastSpellAction(ai, spell), PartyMemberActionNameSupport(spell), dispelType(dispelType), lossOfControlOnly(lossOfControlOnly) {}
+
     protected:
         virtual std::string GetReachActionName() override { return "reach party member to heal"; }
         virtual std::string getName() override { return PartyMemberActionNameSupport::getName(); }
-        virtual std::string GetTargetName() override { return "party member to dispel"; }
+        virtual std::string GetTargetName() override { return lossOfControlOnly ? "party member to dispel cc" : "party member to dispel"; }
         virtual std::string GetTargetQualifier() override { return std::to_string(dispelType); }
 
     protected:
         uint32 dispelType;
+        bool lossOfControlOnly;
     };
 
     //---------------------------------------------------------------------------------------------------------------------

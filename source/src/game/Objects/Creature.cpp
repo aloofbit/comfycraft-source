@@ -65,6 +65,9 @@
 #include "PerfStats.h"
 #include "Autoscaling/AutoScaler.hpp"
 #include "Housing/HouseMgr.h"
+#include "DungeonTuning.h"
+
+#include <atomic>
 
 // apply implementation of the singletons
 #include "Policies/SingletonImp.h"
@@ -1616,6 +1619,174 @@ void Creature::CheckLootDistance(float& distance) const
     }
 }
 
+// Dungeon tuning (DungeonTuning.h). Atomic because every map thread reads it
+// when a creature spawns or casts, while the world thread can write it from
+// the console.
+namespace
+{
+    std::atomic<uint32> s_dungeonHealthPct{ 100 };
+    std::atomic<uint32> s_dungeonDamagePct{ 100 };
+
+    // A dungeon's own pair, by map id: health in the high 16 bits, damage in
+    // the low 16, 0 for none. The highest map id is 822 (Frostmane Hollow).
+    uint32 const DungeonTuningMaxMapId = 1024;
+    std::atomic<uint32> s_dungeonMapPct[DungeonTuningMaxMapId];
+    std::atomic<uint32> s_dungeonMapCount{ 0 };
+
+    // The tables are probed first, as level_cap is: a SELECT on a missing
+    // table is ASSERT(false) in HandleMySQLError. A missing table or row is
+    // stock.
+    bool DungeonTuningTablePresent(char const* table)
+    {
+        bool present = false;
+        if (QueryResult* probe = CharacterDatabase.PQuery(
+                "SELECT COUNT(*) FROM information_schema.tables "
+                "WHERE table_schema = DATABASE() AND table_name = '%s'", table))
+        {
+            present = probe->Fetch()[0].GetUInt32() > 0;
+            delete probe;
+        }
+        return present;
+    }
+
+    // 5 and 10 player dungeons only (map_type 1), without the housing map,
+    // which is one too. Pets, totems and anything a player owns or charms keep
+    // their stock values: a hunter's pet must not get weaker in a dungeon.
+    Map const* DungeonTuningMap(Creature const* creature)
+    {
+        if (!creature || creature->IsPet() || creature->IsTotem() || creature->GetCharmerOrOwnerGuid().IsPlayer())
+            return nullptr;
+
+        Map const* map = creature->FindMap();
+        if (!map || !map->IsNonRaidDungeon() || map->GetId() == HOUSE_MAP_ID)
+            return nullptr;
+        return map;
+    }
+
+    // The dungeon's own pair, else the pair for every dungeon.
+    void DungeonTuningPct(Map const* map, uint32& health, uint32& damage)
+    {
+        uint32 const own = map->GetId() < DungeonTuningMaxMapId
+            ? s_dungeonMapPct[map->GetId()].load(std::memory_order_relaxed) : 0;
+        if (own)
+        {
+            health = own >> 16;
+            damage = own & 0xFFFF;
+        }
+        else
+        {
+            health = s_dungeonHealthPct.load(std::memory_order_relaxed);
+            damage = s_dungeonDamagePct.load(std::memory_order_relaxed);
+        }
+    }
+
+    uint32 ClampDungeonPct(uint32 pct)
+    {
+        return std::min(std::max(pct, DungeonTuning::MinPct), DungeonTuning::MaxPct);
+    }
+}
+
+uint32 DungeonTuning::HealthPct()
+{
+    return s_dungeonHealthPct.load(std::memory_order_relaxed);
+}
+
+uint32 DungeonTuning::DamagePct()
+{
+    return s_dungeonDamagePct.load(std::memory_order_relaxed);
+}
+
+uint32 DungeonTuning::MapCount()
+{
+    return s_dungeonMapCount.load(std::memory_order_relaxed);
+}
+
+float DungeonTuning::HealthMod(Creature const* creature)
+{
+    Map const* map = DungeonTuningMap(creature);
+    if (!map)
+        return 1.0f;
+    uint32 health, damage;
+    DungeonTuningPct(map, health, damage);
+    return health / 100.0f;
+}
+
+float DungeonTuning::DamageMod(Creature const* creature)
+{
+    Map const* map = DungeonTuningMap(creature);
+    if (!map)
+        return 1.0f;
+    uint32 health, damage;
+    DungeonTuningPct(map, health, damage);
+    return damage / 100.0f;
+}
+
+bool DungeonTuning::Load()
+{
+    uint32 health = 100;
+    uint32 damage = 100;
+    bool const present = DungeonTuningTablePresent("dungeon_tuning");
+    if (!present)
+        sLog.outString(">> Dungeon tuning: stock (`dungeon_tuning` is missing; apply sql/custom/190_dungeon_tuning.sql).");
+    else if (QueryResult* result = CharacterDatabase.Query("SELECT `health_pct`, `damage_pct` FROM `dungeon_tuning` WHERE `id` = 1"))
+    {
+        Field* fields = result->Fetch();
+        health = ClampDungeonPct(fields[0].GetUInt32());
+        damage = ClampDungeonPct(fields[1].GetUInt32());
+        delete result;
+    }
+    s_dungeonHealthPct.store(health, std::memory_order_relaxed);
+    s_dungeonDamagePct.store(damage, std::memory_order_relaxed);
+
+    // A dungeon's own pairs. Cleared first, so a row the website removed goes.
+    for (auto& own : s_dungeonMapPct)
+        own.store(0, std::memory_order_relaxed);
+
+    uint32 count = 0;
+    if (DungeonTuningTablePresent("dungeon_tuning_map"))
+    {
+        if (QueryResult* result = CharacterDatabase.Query("SELECT `map_id`, `health_pct`, `damage_pct` FROM `dungeon_tuning_map`"))
+        {
+            do
+            {
+                Field* fields = result->Fetch();
+                uint32 const mapId = fields[0].GetUInt32();
+                if (mapId >= DungeonTuningMaxMapId)
+                {
+                    sLog.outError("Dungeon tuning: map %u is above %u, ignored.", mapId, DungeonTuningMaxMapId - 1);
+                    continue;
+                }
+                uint32 const h = ClampDungeonPct(fields[1].GetUInt32());
+                uint32 const d = ClampDungeonPct(fields[2].GetUInt32());
+                s_dungeonMapPct[mapId].store((h << 16) | d, std::memory_order_relaxed);
+                ++count;
+            } while (result->NextRow());
+            delete result;
+        }
+    }
+    s_dungeonMapCount.store(count, std::memory_order_relaxed);
+    return present;
+}
+
+bool DungeonTuning::Set(uint32 healthPct, uint32 damagePct, char const* changedBy)
+{
+    if (!DungeonTuningTablePresent("dungeon_tuning"))
+        return false;
+
+    healthPct = ClampDungeonPct(healthPct);
+    damagePct = ClampDungeonPct(damagePct);
+
+    std::string by = changedBy ? changedBy : "";
+    CharacterDatabase.escape_string(by);
+    // Direct, so two changes a second apart cannot land in the wrong order.
+    CharacterDatabase.DirectPExecute(
+        "REPLACE INTO `dungeon_tuning` (`id`, `health_pct`, `damage_pct`, `changed_at`, `changed_by`) VALUES (1, %u, %u, NOW(), '%s')",
+        healthPct, damagePct, by.c_str());
+    s_dungeonHealthPct.store(healthPct, std::memory_order_relaxed);
+    s_dungeonDamagePct.store(damagePct, std::memory_order_relaxed);
+    return true;
+}
+
 void Creature::SelectLevel(const CreatureInfo *cinfo, float percentHealth, float percentMana)
 {
     uint32 rank = IsPet() ? 0 : cinfo->rank;
@@ -1629,7 +1800,7 @@ void Creature::SelectLevel(const CreatureInfo *cinfo, float percentHealth, float
     float rellevel = maxlevel == minlevel ? 0 : (float(level - minlevel)) / (maxlevel - minlevel);
 
     // health
-    float healthmod = _GetHealthMod(rank);
+    float healthmod = _GetHealthMod(rank) * DungeonTuning::HealthMod(this);
 
     uint32 minhealth = std::min(cinfo->health_max, cinfo->health_min);
     uint32 maxhealth = std::max(cinfo->health_max, cinfo->health_min);
@@ -1675,7 +1846,7 @@ void Creature::SelectLevel(const CreatureInfo *cinfo, float percentHealth, float
     SetModifierValue(UNIT_MOD_MANA, BASE_VALUE, float(mana));
 
     // damage
-    float damagemod = _GetDamageMod(rank);
+    float damagemod = _GetDamageMod(rank) * DungeonTuning::DamageMod(this);
 
     SetBaseWeaponDamage(BASE_ATTACK, MINDAMAGE, cinfo->dmg_min * damagemod);
     SetBaseWeaponDamage(BASE_ATTACK, MAXDAMAGE, cinfo->dmg_max * damagemod);
