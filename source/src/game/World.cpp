@@ -666,7 +666,7 @@ void World::LoadConfigSettingsCommonPart(bool reload)
         m_lastDiffs.resize(50);
 
 #ifdef USE_ANTICHEAT
-    sAnticheatConfig.SetSource("anticheat.conf");
+    sAnticheatConfig.SetSource(_LIB_ANTICHEAT_CONFIG);
     sAnticheatConfig.loadConfigSettings();
 #endif
 
