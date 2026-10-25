@@ -17,17 +17,25 @@
 --  skipped without an error line) and removes his summoned guardians, the
 --  way 187 removes the Goblin Engineer's golems. The spawns respawn on their
 --  normal timer (a week), as if killed.
+--
+--  A wipe after 50% left the two summoned guards standing, and the next pull
+--  summoned two more. His evade event now removes the summoned guards too.
+--  The two spawned guards stay: they reset with him. Events re-arm on aggro,
+--  so the evade event fires on every wipe.
 -- ============================================================================
 
-DELETE FROM creature_ai_scripts WHERE id = 63908;
+DELETE FROM creature_ai_scripts WHERE id IN (63908, 63909);
 INSERT INTO creature_ai_scripts (id, delay, command, datalong, target_param1, target_type, data_flags, comments) VALUES
 (63908, 0, 18, 0, 79368, 9, 18, 'Edwin VanCleef - Despawn Defias Blackguard 79368'),
 (63908, 0, 18, 0, 79383, 9, 18, 'Edwin VanCleef - Despawn Defias Blackguard 79383'),
-(63908, 0, 56, 636, 0, 0, 0, 'Edwin VanCleef - Remove summoned Defias Blackguards');
+(63908, 0, 56, 636, 0, 0, 0, 'Edwin VanCleef - Remove summoned Defias Blackguards'),
+(63909, 0, 56, 636, 0, 0, 0, 'Edwin VanCleef - Remove summoned Defias Blackguards on Evade');
 
-DELETE FROM creature_ai_events WHERE id = 63908;
+DELETE FROM creature_ai_events WHERE id IN (63908, 63909);
 INSERT INTO creature_ai_events (id, creature_id, condition_id, event_type, event_inverse_phase_mask,
   event_chance, event_flags, event_param1, event_param2, event_param3, event_param4,
   action1_script, action2_script, action3_script, comment) VALUES
 (63908, 639, 0, 6, 0, 100, 0, 0, 0, 0, 0, 63908, 0, 0,
-  'Edwin VanCleef - Despawn his Blackguards on Death');
+  'Edwin VanCleef - Despawn his Blackguards on Death'),
+(63909, 639, 0, 7, 0, 100, 0, 0, 0, 0, 0, 63909, 0, 0,
+  'Edwin VanCleef - Remove summoned Blackguards on Evade');

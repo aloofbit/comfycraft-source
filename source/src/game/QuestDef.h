@@ -328,6 +328,11 @@ class Quest
 
         bool m_isActive;
 
+        // ComfyCraft: race variants of one class quest at one giver, built by
+        // ObjectMgr::LoadQuestRaceVariants. Read only while quest races are ignored.
+        uint32 m_raceVariantMask = 0;           // every race some variant at a shared giver covers
+        bool m_raceVariantFallback = false;     // offered to a race that no variant covers
+
         // table data
     protected:
         uint32 QuestId;

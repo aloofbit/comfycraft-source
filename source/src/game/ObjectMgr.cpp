@@ -4322,6 +4322,10 @@ void ObjectMgr::LoadQuests()
             }
         }
     }
+
+    // The quests were rebuilt, so the variant marks went with them. At start-up the
+    // relations are still empty here; their own loaders run this again.
+    LoadQuestRaceVariants();
 }
 
 uint32 ObjectMgr::GetQuestStartingItemID(uint32 quest_id) const
@@ -6751,6 +6755,8 @@ void ObjectMgr::LoadGameobjectQuestRelations()
         else if (goInfo->type != GAMEOBJECT_TYPE_QUESTGIVER)
             sLog.outErrorDb("Table `gameobject_questrelation` have data gameobject entry (%u) for quest %u, but GO is not GAMEOBJECT_TYPE_QUESTGIVER", itr.first, itr.second);
     }
+
+    LoadQuestRaceVariants();
 }
 
 void ObjectMgr::LoadGameobjectInvolvedRelations()
@@ -6786,6 +6792,76 @@ void ObjectMgr::LoadCreatureQuestRelations()
         else if (!(cInfo->npc_flags & UNIT_NPC_FLAG_QUESTGIVER))
             sLog.outDetail("Table `creature_questrelation` has creature entry (%u) for quest %u, but npc_flags does not include UNIT_NPC_FLAG_QUESTGIVER", itr.first, itr.second);
     }
+
+    LoadQuestRaceVariants();
+}
+
+// ComfyCraft: Factionless.IgnoreQuestRaces opens every race gate, so a giver that
+// has one copy of a class quest per race (Sten Stoutarm's warlock letters: Tainted
+// Rune for dwarves, Tainted Memorandum for gnomes) offers every copy to everyone.
+// A copy can end at an NPC that only its own race was meant to reach.
+//
+// A variant group is the class quests at one giver with the same RequiredClasses and
+// a race gate on each. For each quest this records the races its groups cover, and
+// whether it belongs to the copy offered to a race outside them: the race mask of the
+// group's lowest quest id. Every quest with that mask is the fallback, so a two-step
+// chain for that race stays whole. Quest::SatisfiesRaceRequirements reads both.
+void ObjectMgr::LoadQuestRaceVariants()
+{
+    for (auto const& itr : m_QuestTemplatesMap)
+    {
+        itr.second->m_raceVariantMask = 0;
+        itr.second->m_raceVariantFallback = false;
+    }
+
+    uint32 grouped = 0;
+    auto scan = [&](QuestRelationsMap const& relations)
+    {
+        for (auto giver = relations.begin(); giver != relations.end(); giver = relations.upper_bound(giver->first))
+        {
+            std::map<uint32, std::vector<Quest*>> byClass;
+            auto range = relations.equal_range(giver->first);
+            for (auto r = range.first; r != range.second; ++r)
+            {
+                auto q = m_QuestTemplatesMap.find(r->second);
+                if (q == m_QuestTemplatesMap.end())
+                    continue;
+                Quest* quest = q->second.get();
+                if (quest->RequiredClasses && quest->RequiredRaces)
+                    byClass[quest->RequiredClasses].push_back(quest);
+            }
+
+            for (auto const& group : byClass)
+            {
+                uint32 races = 0;
+                Quest const* lowest = nullptr;
+                for (Quest const* quest : group.second)
+                {
+                    races |= quest->RequiredRaces;
+                    if (!lowest || quest->QuestId < lowest->QuestId)
+                        lowest = quest;
+                }
+                // One quest, or copies that all share a race mask: nothing to choose between.
+                if (races == lowest->RequiredRaces)
+                    continue;
+
+                for (Quest* quest : group.second)
+                {
+                    if (!quest->m_raceVariantMask)
+                        ++grouped;
+                    quest->m_raceVariantMask |= races;
+                    if (quest->RequiredRaces == lowest->RequiredRaces)
+                        quest->m_raceVariantFallback = true;
+                }
+            }
+        }
+    };
+    scan(m_CreatureQuestRelations);
+    scan(m_GOQuestRelations);
+
+    // Three callers run this at start-up; only the last one has every relation.
+    if (!m_CreatureQuestRelations.empty())
+        sLog.outString(">> %u class quests are race variants of one another", grouped);
 }
 
 void ObjectMgr::LoadCreatureInvolvedRelations()

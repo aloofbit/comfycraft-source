@@ -41,6 +41,9 @@ bool BotNpc_Dress(Player*, std::string const&, std::string& error)
 // Backs /who leaving companions out. No bot module, no companions.
 bool Playerbot_IsCompanion(uint32) { return false; }
 
+// Backs a companion sharing its owner's war (FactionlessWar::AtWar).
+uint32 Playerbot_CompanionOwner(uint32) { return 0; }
+
 // Backs `.gear`: the item pick is the bots' own.
 bool Playerbot_GearPlayer(Player*, uint32, uint32, std::string const&, std::string& error)
     { error = "gear needs the playerbots module"; return false; }

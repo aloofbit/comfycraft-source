@@ -14,6 +14,7 @@
 #include "Moonstones.h"
 #include "LevelCap.h"
 #include "DungeonTuning.h"
+#include "CraftPoints.h"
 #include "LootLuck.h"
 #include "LootRates.h"
 #include "BotNpc.h"
@@ -4094,6 +4095,32 @@ bool ComfyCommands::HandleDungeonTuningCommand(ChatHandler* handler, char* args)
 
     handler->PSendSysMessage("Dungeon tuning: health %u%%, damage %u%%. %u dungeons have their own.",
         DungeonTuning::HealthPct(), DungeonTuning::DamagePct(), DungeonTuning::MapCount());
+    return true;
+}
+
+// Craft points (Objects/CraftPoints.h). With no argument it re-reads
+// tw_char.craft_points, which is what the website sends after it writes it.
+// With a spell id it shows that recipe's points.
+bool ComfyCommands::HandleCraftPointsCommand(ChatHandler* handler, char* args)
+{
+    if (*args)
+    {
+        uint32 spellId;
+        if (!handler->ExtractUInt32(&args, spellId))
+            return false;
+        SpellEntry const* spell = sSpellMgr.GetSpellEntry(spellId);
+        handler->PSendSysMessage("%s (%u): %u points, %u while green.", spell ? spell->SpellName[0].c_str() : "Unknown spell",
+            spellId, CraftPoints::Points(spellId, false), CraftPoints::Points(spellId, true));
+        return true;
+    }
+
+    if (!CraftPoints::Load())
+    {
+        handler->SendSysMessage("No `craft_points` table. Apply sql/custom/200_craft_points.sql to tw_char.");
+        handler->SetSentErrorMessage(true);
+        return false;
+    }
+    handler->PSendSysMessage("Craft points: %u recipes give more than 1 point.", CraftPoints::Count());
     return true;
 }
 
@@ -15474,6 +15501,7 @@ namespace
         { "setspeed",          ".setspeed <rate> [name]   walk, run and swim speed, 1 is normal, until the next login" },
         { "levelcap",          ".levelcap [level] | gold <percent>   the level XP stops at, or set it (0 is none); the quest gold paid at the cap (100 is the default)" },
         { "dungeontuning",     ".dungeontuning [health% damage%]   dungeon creature health and damage, or set them (100 is stock)" },
+        { "craftpoints",       ".craftpoints [spell id]   re-read the skill points per craft, or show one recipe's points" },
         { "lootluck",          ".lootluck [on | off | log on | log off]   bad-luck protection on quest drops, or set it" },
         { "lootrates",         ".lootrates   re-read the gear drop rates and show them" },
         { "flightmode",        ".flightmode [on | off]   whether GM flight is on, or set it" },
@@ -18899,11 +18927,36 @@ bool ChatHandler::HandlePDumpListCommand(char* args)
     return true;
 }
 
+// Reject file names that could escape the pdump directory (path traversal).
+static bool IsPlainPDumpFileName(char const* file)
+{
+    if (!file || !*file)
+        return false;
+
+    if (strchr(file, '/') || strchr(file, '\\') || strchr(file, ':'))
+        return false;
+
+    if (strstr(file, ".."))
+        return false;
+
+    if (strcmp(file, ".") == 0)
+        return false;
+
+    return true;
+}
+
 bool ChatHandler::HandlePDumpLoadCommand(char *args)
 {
     char* file = ExtractQuotedOrLiteralArg(&args);
     if (!file)
         return false;
+
+    if (!IsPlainPDumpFileName(file))
+    {
+        SendSysMessage("Dump file name must be a plain file name inside the pdump directory (no path, no '..').");
+        SetSentErrorMessage(true);
+        return false;
+    }
 
     std::string account_name;
     uint32 account_id = ExtractAccountId(&args, &account_name);
@@ -18990,6 +19043,13 @@ bool ChatHandler::HandlePDumpWriteCommand(char *args)
     char* file = ExtractQuotedOrLiteralArg(&args);
     if (!file)
         return false;
+
+    if (!IsPlainPDumpFileName(file))
+    {
+        SendSysMessage("Dump file name must be a plain file name inside the pdump directory (no path, no '..').");
+        SetSentErrorMessage(true);
+        return false;
+    }
 
     char* p2 = ExtractLiteralArg(&args);
 

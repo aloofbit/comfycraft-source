@@ -104,6 +104,8 @@
 #include "PerformanceMonitor.h"
 #include "LevelCap.h"
 #include "DungeonTuning.h"
+#include "CraftPoints.h"
+#include "FactionlessWar.h"
 #include "LootLuck.h"
 #include "LootRates.h"
 #include "DungeonRun.h"
@@ -2356,6 +2358,15 @@ void LoadPlayerEggLoot();
     if (DungeonTuning::Load() && (DungeonTuning::HealthPct() != 100 || DungeonTuning::DamagePct() != 100 || DungeonTuning::MapCount()))
         sLog.outString(">> Dungeon tuning: health %u%%, damage %u%%. %u dungeons have their own.",
             DungeonTuning::HealthPct(), DungeonTuning::DamagePct(), DungeonTuning::MapCount());
+    sLog.outString("Loading craft points...");
+    if (CraftPoints::Load() && CraftPoints::Count())
+        sLog.outString(">> Craft points: %u recipes give more than 1 point.", CraftPoints::Count());
+    sLog.outString("Loading factionless war creatures...");
+    if (!FactionlessWar::Load())
+        sLog.outString(">> Factionless war: every creature at peace (`factionless_war_creature` is missing; apply sql/custom/205_factionless_war_creatures.sql).");
+    else
+        sLog.outString(">> Factionless war: %u creatures stay at war, %u quests keep their race gate.",
+            FactionlessWar::CreatureCount(), FactionlessWar::QuestCount());
     sLog.outString("Loading loot luck...");
     if (LootLuck::Load())
         sLog.outString(">> Loot luck: PRD on quest drops is on.");

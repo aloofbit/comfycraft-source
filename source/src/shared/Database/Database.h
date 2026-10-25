@@ -73,6 +73,15 @@ class SqlConnection
         //methods to work with prepared statements
         bool ExecuteStmt(int nIndex, const SqlStmtParameters& id);
 
+        // The error number of the last failed Execute, ExecuteStmt or
+        // transaction command. SqlTransaction clears it before each attempt
+        // and reads it to decide whether the transaction may run again.
+        uint32 GetLastErrno() const { return m_lastErrno; }
+        void SetLastErrno(uint32 errNo) { m_lastErrno = errNo; }
+        // True for an error after which the same transaction can succeed:
+        // a deadlock or a lock wait timeout.
+        virtual bool IsRetryableError(uint32 /*errNo*/) const { return false; }
+
         //SqlConnection object lock
         class Lock
         {
@@ -112,6 +121,8 @@ class SqlConnection
     private:
         using LOCK_TYPE = std::recursive_mutex;
         LOCK_TYPE m_mutex;
+
+        uint32 m_lastErrno = 0;
 
         typedef std::vector<SqlPreparedStatement * > StmtHolder;
         StmtHolder m_holder;

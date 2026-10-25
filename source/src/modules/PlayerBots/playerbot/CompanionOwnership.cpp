@@ -490,6 +490,14 @@ bool Playerbot_IsCompanion(uint32 guidLow)
     return CompanionOwnership::IsCompanion(guidLow);
 }
 
+// Backs FactionlessWar::AtWar (Object.cpp): a companion fights what its owner
+// fights. Map threads call it; GetOwner takes s_lock shared. 0 for a character
+// that is not a companion.
+uint32 Playerbot_CompanionOwner(uint32 guidLow)
+{
+    return CompanionOwnership::GetOwner(guidLow);
+}
+
 // `.companions` names your companions; `.companions sync` sends the same names
 // to ComfyUI and prints nothing.
 //

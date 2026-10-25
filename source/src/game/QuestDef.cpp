@@ -22,6 +22,7 @@
 #include "QuestDef.h"
 #include "Player.h"
 #include "World.h"
+#include "FactionlessWar.h"
 
 Quest::Quest(Field * questRecord)
 {
@@ -243,8 +244,24 @@ bool Quest::SatisfiesRaceRequirements(uint32 raceMask) const
     // point - the quest log, the gossip status dot, "can I take this" and the turn-in
     // all come through here. RequiredRaces itself is left intact so the website can
     // still tag a quest Alliance or Horde. See docs/features/factionless.md piece 4.
+    //
+    // One exception: a class quest that a giver offers in one copy per race (the
+    // starter letters, The Hunter's Path, the priest racial spells). A race that one
+    // of the copies covers keeps the stock gate and sees only its own copy. A race
+    // that no copy covers sees one copy, not all of them.
+    //
+    // A quest against a creature that stays at war (FactionlessWar.h) keeps its
+    // gate too: the other side could take it but never kill the target.
     if (sWorld.getConfig(CONFIG_BOOL_FACTIONLESS_IGNORE_QUEST_RACES))
+    {
+        if (FactionlessWar::IsGatedQuest(QuestId))
+            return (reqraces & raceMask) != 0;
+        if (m_raceVariantMask & raceMask)
+            return (reqraces & raceMask) != 0;
+        if (m_raceVariantMask)
+            return m_raceVariantFallback;
         return true;
+    }
 
     if ((reqraces & raceMask) == 0)
         return false;

@@ -202,6 +202,11 @@ bool MySQLConnection::HandleMySQLError(uint32 errNo)
     }
 }
 
+bool MySQLConnection::IsRetryableError(uint32 errNo) const
+{
+    return errNo == ER_LOCK_DEADLOCK || errNo == ER_LOCK_WAIT_TIMEOUT;
+}
+
 bool MySQLConnection::_Query(const char *sql, MYSQL_RES **pResult, MYSQL_FIELD **pFields, uint64* pRowCount, uint32* pFieldCount)
 {
     if (!mMysql && !Reconnect())
@@ -350,6 +355,7 @@ bool MySQLConnection::Execute(const char* sql)
 
         if (HandleMySQLError(lErrno)) // If error is handled, just try again
             return Execute(sql);
+        SetLastErrno(lErrno);
         return false;
     }
     else
@@ -366,6 +372,7 @@ bool MySQLConnection::_TransactionCmd(const char *sql)
     {
         sLog.outError("SQL: %s", sql);
         sLog.outError("SQL ERROR: %s", mysql_error(mMysql));
+        SetLastErrno(mysql_errno(mMysql));
         return false;
     }
     else
@@ -558,6 +565,7 @@ bool MySqlPreparedStatement::execute()
     {
         sLog.outError("SQL: cannot execute '%s'", m_szFmt.c_str());
         sLog.outError("SQL ERROR: %s", mysql_stmt_error(m_stmt));
+        m_pConn.SetLastErrno(mysql_stmt_errno(m_stmt));
         return false;
     }
 

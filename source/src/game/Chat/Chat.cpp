@@ -1069,6 +1069,7 @@ ChatCommand * ChatHandler::getCommandTable()
         { "setspeed",       SEC_DEVELOPER,       true,  &ComfyCommands::HandleSetSpeedCommand,          "", nullptr },
         { "levelcap",       SEC_DEVELOPER,       true, &ComfyCommands::HandleLevelCapCommand,          "Syntax: .levelcap [level]\r\n.levelcap gold <percent>\r\nShows the level cap, or sets it. 0 is no cap. gold sets the quest gold paid at the cap.", nullptr },
         { "dungeontuning",  SEC_DEVELOPER,       true,  &ComfyCommands::HandleDungeonTuningCommand,     "Syntax: .dungeontuning [health% damage%]\r\nShows the health and damage of dungeon creatures, or sets them. 100 is stock.", nullptr },
+        { "craftpoints",    SEC_DEVELOPER,       true,  &ComfyCommands::HandleCraftPointsCommand,       "Syntax: .craftpoints [spell id]\r\nRe-reads the craft points and shows how many recipes give more than 1 point, or shows the points of one recipe.", nullptr },
         { "lootluck",       SEC_DEVELOPER,       true,  &ComfyCommands::HandleLootLuckCommand,          "Syntax: .lootluck [on | off | log on | log off]\r\nShows bad-luck protection on quest drops, or sets it.", nullptr },
         { "lootrates",      SEC_DEVELOPER,       true,  &ComfyCommands::HandleLootRatesCommand,         "Syntax: .lootrates\r\nRe-reads the gear drop rates and shows them.", nullptr },
         { "flightmode",     SEC_DEVELOPER,       false, &ComfyCommands::HandleFlightModeCommand,        "", nullptr },

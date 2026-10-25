@@ -123,8 +123,10 @@ namespace ai { namespace botdiag {
 #include "Shop/ShopMgr.h"
 #include "ComfyTitles.h"
 #include "LevelCap.h"
+#include "CraftPoints.h"
 
 #include <sstream>
+#include <mutex>
 
 #define ZONE_UPDATE_INTERVAL (1*IN_MILLISECONDS)
 
@@ -5930,6 +5932,7 @@ void Player::DeleteFromDB(ObjectGuid playerguid, uint32 accountId, bool updateRe
             CharacterDatabase.PExecute("DELETE FROM character_spell_cooldown WHERE guid = '%u'", lowguid);
             CharacterDatabase.PExecute("DELETE FROM character_ticket WHERE guid = '%u'", lowguid);
             CharacterDatabase.PExecute("DELETE FROM item_instance WHERE owner_guid = '%u'", lowguid);
+            CharacterDatabase.PExecute("DELETE FROM character_transmogs WHERE guid = '%u'", lowguid);
             CharacterDatabase.PExecute("DELETE FROM character_social WHERE guid = '%u'", lowguid);
             CharacterDatabase.PExecute("DELETE FROM character_social WHERE friend = '%u'", lowguid);
             CharacterDatabase.PExecute("DELETE FROM mail WHERE receiver = '%u'", lowguid);
@@ -5948,9 +5951,15 @@ void Player::DeleteFromDB(ObjectGuid playerguid, uint32 accountId, bool updateRe
             // Ordering is safe because the whole block runs inside the
             // BeginTransaction above, which executes in order on commit -
             // bare PExecute would NOT be ordered against the delete below.
-            CharacterDatabase.PExecute("DELETE FROM pet_aura WHERE guid IN (SELECT id FROM character_pet WHERE owner = '%u')", lowguid);
-            CharacterDatabase.PExecute("DELETE FROM pet_spell WHERE guid IN (SELECT id FROM character_pet WHERE owner = '%u')", lowguid);
-            CharacterDatabase.PExecute("DELETE FROM pet_spell_cooldown WHERE guid IN (SELECT id FROM character_pet WHERE owner = '%u')", lowguid);
+            //
+            // A JOIN, NOT `guid IN (SELECT ...)` (2026-10-24). MariaDB runs the
+            // IN form as a dependent subquery over every row of the table, and
+            // on InnoDB pet_aura that locks every row until the commit. Two
+            // companions dismissed together then deadlock. The join reads the
+            // owner's pets by idx_owner and their rows by the primary key.
+            CharacterDatabase.PExecute("DELETE pa FROM pet_aura pa JOIN character_pet cp ON cp.id = pa.guid WHERE cp.owner = '%u'", lowguid);
+            CharacterDatabase.PExecute("DELETE ps FROM pet_spell ps JOIN character_pet cp ON cp.id = ps.guid WHERE cp.owner = '%u'", lowguid);
+            CharacterDatabase.PExecute("DELETE pc FROM pet_spell_cooldown pc JOIN character_pet cp ON cp.id = pc.guid WHERE cp.owner = '%u'", lowguid);
 
             CharacterDatabase.PExecute("DELETE FROM character_pet WHERE owner = '%u'", lowguid);
             CharacterDatabase.PExecute("DELETE FROM guild_eventlog WHERE PlayerGuid1 = '%u' OR PlayerGuid2 = '%u'", lowguid, lowguid);
@@ -7211,6 +7220,74 @@ bool Player::UpdateSkill(uint32 skill_id, uint32 step)
     return true;
 }
 
+// Craft points (CraftPoints.h). Map threads read it at each craft while the
+// world thread can replace it from the console, so the map sits behind a
+// mutex. A craft takes the lock once.
+namespace
+{
+    std::mutex s_craftPointsLock;
+    // spell id -> points in the low 8 bits, green points in the next 8.
+    std::unordered_map<uint32, uint32> s_craftPoints;
+
+    // Probed first, as level_cap is: a SELECT on a missing table is
+    // ASSERT(false) in HandleMySQLError.
+    bool CraftPointsTablePresent()
+    {
+        bool present = false;
+        if (QueryResult* probe = CharacterDatabase.Query(
+                "SELECT COUNT(*) FROM information_schema.tables "
+                "WHERE table_schema = DATABASE() AND table_name = 'craft_points'"))
+        {
+            present = probe->Fetch()[0].GetUInt32() > 0;
+            delete probe;
+        }
+        return present;
+    }
+
+    uint32 ClampCraftPoints(uint32 points)
+    {
+        return std::min(std::max(points, 1u), CraftPoints::MaxPoints);
+    }
+}
+
+uint32 CraftPoints::Points(uint32 spellId, bool green)
+{
+    std::lock_guard<std::mutex> guard(s_craftPointsLock);
+    auto const itr = s_craftPoints.find(spellId);
+    if (itr == s_craftPoints.end())
+        return 1;
+    return green ? (itr->second >> 8) & 0xFF : itr->second & 0xFF;
+}
+
+uint32 CraftPoints::Count()
+{
+    std::lock_guard<std::mutex> guard(s_craftPointsLock);
+    return uint32(s_craftPoints.size());
+}
+
+bool CraftPoints::Load()
+{
+    std::unordered_map<uint32, uint32> points;
+    bool const present = CraftPointsTablePresent();
+    if (!present)
+        sLog.outString(">> Craft points: stock (`craft_points` is missing; apply sql/custom/200_craft_points.sql).");
+    else if (QueryResult* result = CharacterDatabase.Query("SELECT `spell_id`, `points`, `green_points` FROM `craft_points`"))
+    {
+        do
+        {
+            Field* fields = result->Fetch();
+            uint32 const normal = ClampCraftPoints(fields[1].GetUInt32());
+            uint32 const green = ClampCraftPoints(fields[2].GetUInt32());
+            points[fields[0].GetUInt32()] = normal | (green << 8);
+        } while (result->NextRow());
+        delete result;
+    }
+
+    std::lock_guard<std::mutex> guard(s_craftPointsLock);
+    s_craftPoints.swap(points);
+    return present;
+}
+
 inline int SkillGainChance(uint32 SkillValue, uint32 GrayLevel, uint32 GreenLevel, uint32 YellowLevel)
 {
     if (SkillValue >= GrayLevel)
@@ -7234,11 +7311,16 @@ bool Player::UpdateCraftSkill(uint32 spellid)
         {
             uint32 SkillValue = GetSkillValuePure(_spell_idx->second->skillId);
 
-            uint32 craft_skill_gain = sWorld.getConfig(CONFIG_UINT32_SKILL_GAIN_CRAFTING);
+            uint32 const greenLevel = (_spell_idx->second->max_value + _spell_idx->second->min_value) / 2;
+
+            // Craft points (CraftPoints.h): the recipe's own points in place
+            // of 1. The colour still sets the chance.
+            uint32 craft_skill_gain = sWorld.getConfig(CONFIG_UINT32_SKILL_GAIN_CRAFTING) *
+                                      CraftPoints::Points(spellid, SkillValue >= greenLevel);
 
             return UpdateSkillPro(_spell_idx->second->skillId, SkillGainChance(SkillValue,
                                   _spell_idx->second->max_value,
-                                  (_spell_idx->second->max_value + _spell_idx->second->min_value) / 2,
+                                  greenLevel,
                                   _spell_idx->second->min_value),
                                   craft_skill_gain);
         }

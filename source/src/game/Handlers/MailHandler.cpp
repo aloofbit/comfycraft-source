@@ -97,7 +97,7 @@ public:
     std::string receiverName;
     Player*     receiverPtr;
     Team        rcTeam;
-    uint8       mailsCount;
+    uint32      mailsCount;                                 // uint8 wrapped at 256 and reopened the 100 cap
     void Callback(QueryResult* result)
     {
         WorldSession* sess = sWorld.FindSession(accountId);
@@ -868,8 +868,9 @@ void WorldSession::HandleGetMailList(WorldPacket& recv_data)
     MasterPlayer* pl = GetMasterPlayer();
     ASSERT(pl);
 
-    // client can't work with packets > max int16 value
-    // uint32 const maxPacketSize = 32767;
+    // client can't work with packets > max int16 value: a 35 KB list (254 mails,
+    // 64-byte subjects) showed an empty mailbox, 28 KB showed all of it
+    uint32 const maxPacketSize = 32767;
 
     uint32 mailsCount = 0;                                  // real send to client mails amount
 
@@ -891,12 +892,12 @@ void WorldSession::HandleGetMailList(WorldPacket& recv_data)
             continue;
         }
 
-        /*[-ZERO] TODO recheck this
-        size_t next_mail_size = 4+1+8+((*itr)->subject.size()+1)+4*7+1+item_count*(1+4+4+6*3*4+4+4+1+4+4+4);
+        // the fields written below: id, type, sender, subject, 3 x uint32, item (29), 5 x uint32
+        size_t senderSize = (*itr)->messageType == MAIL_NORMAL ? 8 : (*itr)->messageType == MAIL_ITEM ? 0 : 4;
+        size_t next_mail_size = 4 + 1 + senderSize + ((*itr)->subject.size() + 1) + 4 * 3 + 29 + 4 * 5;
 
-        if (data.wpos()+next_mail_size > maxPacketSize)
+        if (data.wpos() + next_mail_size > maxPacketSize)
             break;
-        */
 
         data << uint32((*itr)->messageID);                  // Message ID
         data << uint8((*itr)->messageType);                 // Message Type

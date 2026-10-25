@@ -26,6 +26,9 @@
 #include "Timer.h"
 #include "ThreadPool.h"
 
+#include <chrono>
+#include <thread>
+
 #define LOCK_DB_CONN(conn) SqlConnection::Lock guard(conn)
 
 /// ---- ASYNC STATEMENTS / TRANSACTIONS ----
@@ -59,21 +62,52 @@ bool SqlTransaction::Execute(SqlConnection *conn)
 
     LOCK_DB_CONN(conn);
 
-    conn->BeginTransaction();
-
+    // A DEADLOCK RUNS THE WHOLE TRANSACTION AGAIN (2026-10-24). InnoDB ends a
+    // deadlock by rolling back one of the two transactions, and the advice is
+    // to run it again. This loop stopped at the failing statement instead, so
+    // nothing after it ran. The MyISAM statements before it are not rolled
+    // back. Two companions dismissed together deadlocked in
+    // Player::DeleteFromDB 15 times in a week: the `characters` row went, and
+    // the skills, spells, items and bot strategies after the failed statement
+    // stayed for the next character on that guid.
+    //
+    // Running again also runs again the MyISAM statements that succeeded.
+    // Saves and deletes are DELETE then INSERT, so a second run leaves the
+    // same rows. PackInstances adds offsets, but it runs at startup with no
+    // other writer, and a deadlock needs two.
+    const uint32 maxAttempts = 3;
     const int nItems = m_queue.size();
-    for (int i = 0; i < nItems; ++i)
+    for (uint32 attempt = 1; ; ++attempt)
     {
-        SqlOperation * pStmt = m_queue[i];
+        conn->SetLastErrno(0);
+        conn->BeginTransaction();
 
-        if(!pStmt->Execute(conn))
+        bool executed = true;
+        for (int i = 0; i < nItems; ++i)
         {
-            conn->RollbackTransaction();
+            if (!m_queue[i]->Execute(conn))
+            {
+                executed = false;
+                break;
+            }
+        }
+
+        if (executed && conn->CommitTransaction())
+            return true;
+
+        uint32 const errNo = conn->GetLastErrno();
+        conn->RollbackTransaction();
+
+        if (attempt >= maxAttempts || !conn->IsRetryableError(errNo))
+        {
+            if (conn->IsRetryableError(errNo))
+                sLog.outErrorDb("SQL: transaction of %d statements failed with error %u after %u attempts", nItems, errNo, attempt);
             return false;
         }
-    }
 
-    return conn->CommitTransaction();
+        sLog.outErrorDb("SQL: transaction of %d statements hit error %u, attempt %u of %u, running it again", nItems, errNo, attempt, maxAttempts);
+        std::this_thread::sleep_for(std::chrono::milliseconds(20 * attempt));
+    }
 }
 
 SqlPreparedRequest::SqlPreparedRequest(int nIndex, SqlStmtParameters * arg ) : m_nIndex(nIndex), m_param(arg)

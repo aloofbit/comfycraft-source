@@ -79,6 +79,7 @@ class MySQLConnection : public SqlConnection
         bool OpenConnection(bool reconnect) override;
         bool Reconnect();
         bool HandleMySQLError(uint32 errNo);
+        bool IsRetryableError(uint32 errNo) const override;
 
         QueryResult* Query(const char *sql) override;
         QueryNamedResult* QueryNamed(const char *sql) override;

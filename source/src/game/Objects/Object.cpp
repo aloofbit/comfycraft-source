@@ -37,6 +37,7 @@
 #include "Housing/HouseMgr.h"
 #include "InvasionMgr.h"
 #include "DungeonTuning.h"
+#include "FactionlessWar.h"
 #include "Log.h"
 #include "Transport.h"
 #include "TargetedMovementGenerator.h"
@@ -838,6 +839,11 @@ void Object::BuildValuesUpdate(uint8 updatetype, ByteBuffer * data, UpdateMask *
                     uint32 faction = m_uint32Values[index];
                     if (forceFriendly)
                         faction = target->GetFactionTemplateId();
+                    // ComfyCraft: a quest mob that stays at war (FactionlessWar.h).
+                    // The viewer's peace standing would make the client draw it
+                    // friendly and refuse the attack.
+                    else if (FactionlessWar::AtWar(target, static_cast<Unit const*>(this)))
+                        faction = FactionlessWar::ViewerFactionTemplate;
 
                     *data << uint32(faction);
                 }
@@ -3759,14 +3765,182 @@ ReputationRank WorldObject::GetReactionTo(WorldObject const* target) const
                             if (factionState->Flags & FACTION_FLAG_AT_WAR)
                                 return REP_HOSTILE;
 
+                        // ComfyCraft: a quest mob the peace must not reach (FactionlessWar.h).
+                        if (FactionlessWar::AtWar(selfPlayerOwner, target))
+                            return REP_HOSTILE;
+
                         return REP_FRIENDLY;
                     }
                 }
             }
         }
     }
+    // ComfyCraft: the same war seen from the creature's side, so it aggros and
+    // fights back. GetFactionReactionTo reads only the player's standing.
+    if (!selfPlayerOwner && targetPlayerOwner && FactionlessWar::AtWar(targetPlayerOwner, this))
+        return REP_HOSTILE;
+
     // do checks dependant only on our faction
     return GetFactionReactionTo(GetFactionTemplateEntry(), target);
+}
+
+// Factionless war (FactionlessWar.h). Written once at start-up, before any map
+// runs; the map threads only read it.
+extern uint32 Playerbot_CompanionOwner(uint32 guidLow);
+
+namespace
+{
+    std::unordered_set<uint32> s_warCreatures;
+    std::unordered_set<uint32> s_warQuests;
+
+    // The races born at war with a faction: the rows of its base reputation
+    // that carry the At War flag.
+    uint32 WarRaceMask(FactionEntry const* faction)
+    {
+        uint32 mask = 0;
+        for (int i = 0; i < 4; ++i)
+            if (faction->ReputationFlags[i] & FACTION_FLAG_AT_WAR)
+                mask |= faction->BaseRepRaceMask[i];
+        return mask;
+    }
+
+    FactionEntry const* CreatureFaction(uint32 entry)
+    {
+        CreatureInfo const* info = sObjectMgr.GetCreatureTemplate(entry);
+        FactionTemplateEntry const* ft = info ? sObjectMgr.GetFactionTemplateEntry(info->faction) : nullptr;
+        return ft ? sObjectMgr.GetFactionEntry(ft->faction) : nullptr;
+    }
+}
+
+bool FactionlessWar::Load()
+{
+    s_warCreatures.clear();
+    s_warQuests.clear();
+
+    // A SELECT on a missing table is ASSERT(false) in HandleMySQLError.
+    bool present = false;
+    if (QueryResult* probe = WorldDatabase.Query(
+            "SELECT COUNT(*) FROM information_schema.tables "
+            "WHERE table_schema = DATABASE() AND table_name = 'factionless_war_creature'"))
+    {
+        present = probe->Fetch()[0].GetUInt32() > 0;
+        delete probe;
+    }
+    if (!present)
+        return false;
+
+    if (QueryResult* result = WorldDatabase.Query("SELECT entry FROM factionless_war_creature"))
+    {
+        do
+        {
+            uint32 entry = result->Fetch()[0].GetUInt32();
+            if (!sObjectMgr.GetCreatureTemplate(entry))
+                sLog.outErrorDb("Table `factionless_war_creature` has nonexistent creature entry %u, skipped.", entry);
+            else
+                s_warCreatures.insert(entry);
+        }
+        while (result->NextRow());
+        delete result;
+    }
+
+    // The quest-only items each listed creature drops.
+    std::unordered_map<uint32, std::vector<uint32>> droppedBy;
+    if (QueryResult* result = WorldDatabase.Query(
+            "SELECT DISTINCT l.item, w.entry FROM factionless_war_creature w "
+            "JOIN creature_template t ON t.entry = w.entry "
+            "JOIN creature_loot_template l ON l.entry = t.loot_id "
+            "WHERE l.ChanceOrQuestChance < 0"))
+    {
+        do
+        {
+            Field* fields = result->Fetch();
+            droppedBy[fields[0].GetUInt32()].push_back(fields[1].GetUInt32());
+        }
+        while (result->NextRow());
+        delete result;
+    }
+
+    // A quest is against a listed creature when its own races are born at war
+    // with that creature's faction. A Horde quest that only shares an item with
+    // an Alliance quest mob is not.
+    auto against = [](Quest const* quest, uint32 entry)
+    {
+        if (!s_warCreatures.count(entry))
+            return false;
+        FactionEntry const* faction = CreatureFaction(entry);
+        return faction && (WarRaceMask(faction) & quest->GetRequiredRaces());
+    };
+
+    for (auto const& itr : sObjectMgr.GetQuestTemplates())
+    {
+        Quest const* quest = itr.second.get();
+        if (!quest->GetRequiredRaces())
+            continue;
+
+        bool gated = false;
+        for (int i = 0; i < QUEST_OBJECTIVES_COUNT && !gated; ++i)
+            gated = quest->ReqCreatureOrGOId[i] > 0 && !quest->ReqSpell[i]
+                && against(quest, uint32(quest->ReqCreatureOrGOId[i]));
+        for (int i = 0; i < QUEST_ITEM_OBJECTIVES_COUNT && !gated; ++i)
+        {
+            auto drop = droppedBy.find(quest->ReqItemId[i]);
+            if (drop != droppedBy.end())
+                for (uint32 entry : drop->second)
+                    gated = gated || against(quest, entry);
+        }
+
+        if (gated)
+            s_warQuests.insert(itr.first);
+    }
+    return true;
+}
+
+bool FactionlessWar::AtWar(Player const* player, WorldObject const* target)
+{
+    if (!player || !target || s_warCreatures.empty() || !sWorld.getConfig(CONFIG_BOOL_FACTIONLESS_ENABLE))
+        return false;
+
+    Creature const* creature = target->ToCreature();
+    if (!creature || !s_warCreatures.count(creature->GetEntry()))
+        return false;
+
+    // The creature's current template, so a script that turns it friendly wins.
+    FactionTemplateEntry const* ft = creature->GetFactionTemplateEntry();
+    FactionEntry const* faction = ft ? sObjectMgr.GetFactionEntry(ft->faction) : nullptr;
+    if (!faction)
+        return false;
+
+    auto bornAtWar = [faction](Player const* who)
+    {
+        int idx = faction->GetIndexFitTo(who->GetRaceMask(), who->GetClassMask());
+        return idx >= 0 && (faction->ReputationFlags[idx] & FACTION_FLAG_AT_WAR);
+    };
+    if (bornAtWar(player))
+        return true;
+
+    // A companion fights what its owner fights. It is a Player of its own race,
+    // so a Horde player's Human companion would otherwise stand at peace with
+    // the mob its owner is fighting. The owner must be on the same map.
+    if (uint32 owner = Playerbot_CompanionOwner(player->GetGUIDLow()))
+        if (Player const* master = player->GetMap()->GetPlayer(ObjectGuid(HIGHGUID_PLAYER, owner)))
+            return bornAtWar(master);
+
+    return false;
+}
+
+bool FactionlessWar::IsGatedQuest(uint32 questId)
+{
+    return s_warQuests.count(questId) != 0;
+}
+
+uint32 FactionlessWar::CreatureCount()
+{
+    return uint32(s_warCreatures.size());
+}
+
+uint32 FactionlessWar::QuestCount()
+{
+    return uint32(s_warQuests.size());
 }
 
 ReputationRank WorldObject::GetFactionReactionTo(FactionTemplateEntry const* factionTemplateEntry, WorldObject const* target)
