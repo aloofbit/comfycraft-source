@@ -66,6 +66,9 @@ enum
     MOB_NIGHTMARE_ECTOPLASM = 5763,
     MOB_MUTANUS_DEVOURER = 3654,
 
+    EVENT_SKIP_TO_RITUAL = 1, // sent by .wcritual
+    WP_RITUAL = 30,
+
     POINT_LAST_POINT = 0xFFFFFF
 };
 
@@ -105,6 +108,7 @@ struct npc_disciple_of_naralexAI : public npc_escortAI
 
     bool Yelled;
     bool isAggro;
+    bool WavePause;
 
     void Reset() override
     {
@@ -118,6 +122,7 @@ struct npc_disciple_of_naralexAI : public npc_escortAI
 
         Yelled = false;
         isAggro = false;
+        WavePause = false;
     }
 
     void EnterEvadeMode() override
@@ -483,16 +488,34 @@ struct npc_disciple_of_naralexAI : public npc_escortAI
                         case 3:
                             for (int i = 7; i < 10; ++i)
                                 SummonAttacker(MOB_DEVIATE_MOCCASIN, Position[i][0], Position[i][1], Position[i][2]);
-                            Event_Timer = 40000;
+                            Event_Timer = 1000;
                             Subevent_Phase = 4;
                             break;
+                        // Each ritual wave waits until the one before it is dead (stock: 40 s each)
                         case 4:
+                            if (!vSummoned.empty())
+                            {
+                                Event_Timer = 1000;
+                                break;
+                            }
+                            if (!WavePause)
+                            {
+                                WavePause = true;
+                                Event_Timer = 5000;
+                                break;
+                            }
+                            WavePause = false;
                             for (int i = 3; i < 10; ++i)
                                 SummonAttacker(MOB_NIGHTMARE_ECTOPLASM, Position[i][0], Position[i][1], Position[i][2]);
-                            Event_Timer = 40000;
+                            Event_Timer = 1000;
                             Subevent_Phase = 5;
                             break;
                         case 5:
+                            if (!vSummoned.empty())
+                            {
+                                Event_Timer = 1000;
+                                break;
+                            }
                             Subevent_Phase = 6;
                             Event_Timer = 10000;
                             DoScriptText(EMOTE_NARALEX_2, Naralex);
@@ -592,6 +615,23 @@ struct npc_disciple_of_naralexAI : public npc_escortAI
     {
         if (!m_pInstance)
             return;
+
+        // Start the escort one waypoint short of the ritual circle
+        if (uiEvent == EVENT_SKIP_TO_RITUAL)
+        {
+            uint32 const state = m_pInstance->GetData(TYPE_DISCIPLE);
+            if (!pInvoker || state == IN_PROGRESS || state == DONE || HasEscortState(STATE_ESCORT_ESCORTING))
+                return;
+            m_pInstance->SetData(TYPE_DISCIPLE, SPECIAL);
+            Start(false, 0);
+            if (!HasEscortState(STATE_ESCORT_ESCORTING))
+                return;
+            m_playerGuid = pInvoker->GetObjectGuid();
+            m_creature->SetFactionTemplateId(FACTION_ESCORT_N_NEUTRAL_ACTIVE);
+            setCurrentWP(WP_RITUAL);
+            m_creature->NearTeleportTo(98.7f, 239.0f, -95.8f, 0.0f);
+            return;
+        }
 
         if (m_pInstance->GetData(TYPE_DISCIPLE) == SPECIAL)
         {

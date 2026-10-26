@@ -46,15 +46,22 @@
 #include "GossipDef.h"
 #include "GridNotifiers.h"
 #include "GridNotifiersImpl.h"
+#include "Group.h"
+#include "Invasion/InvasionMgr.h"
 #include "Log.h"
 #include "Map.h"
 #include "MapManager.h"
+#include "MapPersistentStateMgr.h"
 #include "Nostalrius.h"
+#include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "Player.h"
+#include "SQLStorages.h"
 #include "ScriptMgr.h"
 #include "ScriptedGossip.h"
+#include "Spell.h"
 #include "Timer.h"
+#include "World.h"
 #include "WorldSession.h"
 
 #include <cctype>
@@ -515,7 +522,9 @@ void HouseMgr::EvictLapsedVisitors(Map* map)
         if (p->GetForcedInstanceId(HOUSE_MAP_ID) != house->instanceId)
             continue;
 
-        if (p->GetSession()->GetSecurity() >= SEC_DEVELOPER)
+        // Staff who came in by `.house visit` with no party. Only them: a GM
+        // account in a party, or through a portal, plays by the party rule.
+        if (m_staffVisits.count(p->GetGUIDLow()))
             continue;
 
         // THE SAME QUESTION THE DOOR ASKS, asked again. Not "were they let in"
@@ -523,6 +532,11 @@ void HouseMgr::EvictLapsedVisitors(Map* map)
         // the only form that cannot go stale.
         HousePartyHost host;
         if (GetPartyLeader(p, host) && host.leaderAccount == house->accountId)
+            continue;
+
+        // The second ticket: they came in by this house's Portal Home and are
+        // still in a party with the owner, leader or not.
+        if (IsPortalGuest(p, *house))
             continue;
 
         leaving.push_back(p);
@@ -539,8 +553,6 @@ void HouseMgr::EvictLapsedVisitors(Map* map)
         if (p->IsInCombat())
             continue;
 
-        ChatHandler(p).SendSysMessage("The party has broken up, and the visit with it.");
-
         // OUT THROUGH THE DOOR, NOT TO A HEARTHSTONE. Being shown out of a
         // house should put you outside it, which is where the exit portal's
         // own Leave puts you -- and using that function rather than a second
@@ -552,9 +564,27 @@ void HouseMgr::EvictLapsedVisitors(Map* map)
         // CLEARED AFTER, NOT BEFORE. Clearing the forced instance ahead of a
         // teleport that did not happen would leave them standing inside with
         // the GetForcedInstanceId check above skipping them for good -- an
-        // ex-guest the poll can no longer see.
+        // ex-guest the poll can no longer see. So a refused trip (the way back
+        // to a dungeon is shut during a boss fight) keeps the override, and the
+        // next poll tries again. The line is said only when they go, or a
+        // refusal would repeat it twice a second.
+        //
+        // A portal guest whose host logged out has not lost the party, so the
+        // line names the host. Read before the trip, which spends the return.
+        std::string host;
+        std::map<uint32, HouseReturn>::const_iterator ret = m_returns.find(p->GetGUIDLow());
+        WorldSession* hostSession = sWorld.FindSession(house->accountId);
+        if (ret != m_returns.end() && !(hostSession && hostSession->GetPlayer()))
+            sObjectMgr.GetPlayerNameByGUID(ret->second.hostGuid, host);
+
         std::string ignored;
-        SendPlayerToPortal(p, ignored);
+        if (!SendPlayerToPortal(p, ignored))
+            continue;
+
+        if (!host.empty())
+            ChatHandler(p).PSendSysMessage("%s has logged out. The visit is over.", host.c_str());
+        else
+            ChatHandler(p).SendSysMessage("The party has broken up, and the visit with it.");
         p->ClearForcedInstance();
     }
 }
@@ -908,6 +938,24 @@ bool HouseMgr::SendPlayerToPortal(Player* player, std::string& error)
         return false;
     }
 
+    // A PORTAL HOME TRIP GOES BACK TO WHERE IT STARTED, before any door. A
+    // refusal (a raid encounter in progress, a full instance) keeps them inside
+    // rather than dropping them at a door on another continent. A return point
+    // that is gone hands over to the doors below.
+    std::map<uint32, HouseReturn>::const_iterator ret = m_returns.find(player->GetGUIDLow());
+    if (ret != m_returns.end())
+    {
+        HouseReturn const back = ret->second;
+        if (SendPlayerBack(player, back, error))
+        {
+            DropReturn(player->GetGUIDLow());
+            return true;
+        }
+        if (!error.empty())
+            return false;
+        DropReturn(player->GetGUIDLow());
+    }
+
     // The door they actually walked in through comes first. Falling back to the
     // one they call home covers a relog or a restart while indoors, and covers
     // .house go, which arrives through no door at all.
@@ -974,6 +1022,34 @@ bool HouseMgr::SendPlayerToPortal(Player* player, std::string& error)
 // has no entry in m_enteredBy and comes out at the host's door.
 bool HouseMgr::GetLoginExit(Player* player, uint32 instanceId, WorldLocation& loc)
 {
+    // A Portal Home trip logs in where it started. The caller sets instance 0
+    // and CreateMap takes the bind, so a dungeon spot is used only while the
+    // bind still names the copy they left: the logout keeps them in the group
+    // that holds it. Otherwise the dungeon's entrance.
+    std::map<uint32, HouseReturn>::iterator ret = m_returns.find(player->GetGUIDLow());
+    if (ret != m_returns.end())
+    {
+        HouseReturn const back = ret->second;
+        DropReturn(player->GetGUIDLow());
+
+        MapEntry const* entry = sMapStorage.LookupEntry<MapEntry>(back.mapId);
+        DungeonPersistentState* state = (entry && entry->IsDungeon())
+            ? player->GetBoundInstanceSaveForSelfOrGroup(back.mapId) : nullptr;
+        if (entry && (!entry->IsDungeon() || (state && state->GetInstanceId() == back.instanceId)))
+        {
+            loc = WorldLocation(back.mapId, back.x, back.y, back.z, back.o);
+            m_enteredBy.erase(player->GetGUIDLow());
+            return true;
+        }
+        if (entry)
+            if (AreaTriggerTeleport const* at = sObjectMgr.GetGoBackTrigger(back.mapId))
+            {
+                loc = at->destination;
+                m_enteredBy.erase(player->GetGUIDLow());
+                return true;
+            }
+    }
+
     HousePortal const* p = nullptr;
 
     std::map<uint32, uint32>::const_iterator used = m_enteredBy.find(player->GetGUIDLow());
@@ -1016,7 +1092,311 @@ uint32 HouseMgr::PortalIdFromGuid(uint32 lowGuid)
 void HouseMgr::RememberEntrance(Player* player, uint32 portalId)
 {
     if (player && portalId)
+    {
         m_enteredBy[player->GetGUIDLow()] = portalId;
+        m_staffVisits.erase(player->GetGUIDLow());
+        if (m_returns.count(player->GetGUIDLow()))
+            DropReturn(player->GetGUIDLow());
+    }
+}
+
+//== Portal Home =============================================================
+//
+// A spell (HOUSE_HOME_PORTAL_SPELL) that opens a portal to the caster's house
+// where they stand, dungeons included. The owner and their party click it to go
+// in, and the way out puts each of them back on the spot they left from.
+
+// Refused where a trip out and back cannot work: a battleground removes you
+// when you leave, an invasion fight is a duel you would walk out of, and a
+// transport moves away from the spot you would come back to.
+bool HouseMgr::CanOpenHomePortal(Player* player, bool say)
+{
+    char const* why = nullptr;
+
+    if (!m_enabled)
+        why = "Housing is not available on this server.";
+    else if (!GetHouseByAccount(player->GetSession()->GetAccountId()))
+        why = "You do not have a home yet. Find an entrance portal and claim one.";
+    else if (player->GetMapId() == HOUSE_MAP_ID)
+        why = "You are already in a house.";
+    else if (player->GetMap()->IsBattleGround())
+        why = "You cannot open a portal home here.";
+    else if (player->GetTransport() || player->IsTaxiFlying())
+        why = "You cannot open a portal home while travelling.";
+    else if (sInvasionMgr.IsFighting(player->GetObjectGuid()))
+        why = "You cannot open a portal home during an invasion.";
+
+    if (!why)
+        return true;
+
+    if (say)
+        ChatHandler(player).SendSysMessage(why);
+    return false;
+}
+
+// At the caster's feet, facing the way they face. One portal per account: a
+// second cast (a GM cooldown reset) replaces the record, and the first portal
+// closes itself on its next check.
+void HouseMgr::OpenHomePortal(Player* player)
+{
+    if (!player || !CanOpenHomePortal(player, true))
+        return;
+
+    uint32 const accountId = player->GetSession()->GetAccountId();
+
+    // NOT ATTACHED to the caster. WorldObject::SummonGameObject attaches by
+    // default, and Unit::RemoveFromWorld deletes attached objects when the
+    // caster changes map, so the portal would close behind the owner and
+    // strand the party. The lifetime closes it instead.
+    GameObject* go = player->GetMap()->SummonGameObject(HOUSE_HOME_PORTAL_ENTRY,
+        player->GetPositionX(), player->GetPositionY(), player->GetPositionZ(), player->GetOrientation(),
+        0.0f, 0.0f, 0.0f, 0.0f, HOUSE_HOME_PORTAL_LIFETIME, WORLD_DEFAULT_OBJECT);
+    if (!go)
+    {
+        ChatHandler(player).SendSysMessage("The portal would not open.");
+        return;
+    }
+
+    HouseHomePortal& open = m_homePortals[accountId];
+    open.goGuid     = go->GetObjectGuid();
+    open.ownerGuid  = player->GetObjectGuid();
+    open.mapId      = player->GetMapId();
+    open.instanceId = player->GetInstanceId();
+}
+
+bool HouseMgr::UseHomePortal(Player* player, GameObject* go)
+{
+    if (!player || !go || !m_enabled)
+        return true;
+
+    uint32 accountId = 0;
+    HouseHomePortal const* open = nullptr;
+    for (std::map<uint32, HouseHomePortal>::const_iterator itr = m_homePortals.begin();
+         itr != m_homePortals.end(); ++itr)
+        if (itr->second.goGuid == go->GetObjectGuid())
+        {
+            accountId = itr->first;
+            open = &itr->second;
+            break;
+        }
+
+    // Not one we opened: a restart forgot it, or it was spawned by hand.
+    if (!open)
+    {
+        ChatHandler(player).SendSysMessage("This portal leads nowhere now.");
+        return true;
+    }
+
+    if (player->IsInCombat())
+    {
+        ChatHandler(player).SendSysMessage("You cannot go through while in combat.");
+        return true;
+    }
+
+    House* house = GetHouseByAccount(accountId);
+    if (!house)
+    {
+        ChatHandler(player).SendSysMessage("This portal leads nowhere now.");
+        return true;
+    }
+
+    bool const owner = player->GetSession()->GetAccountId() == accountId;
+    if (!owner)
+    {
+        // The party of the character who opened it, whoever leads. The owner
+        // must be online: a visit with nobody home ends on the next poll.
+        Player* host = ObjectAccessor::FindPlayer(open->ownerGuid);
+        Group* group = player->GetGroup();
+        if (!host || !group || !group->IsMember(open->ownerGuid))
+        {
+            std::string const name = host ? host->GetName() : "its owner";
+            ChatHandler(player).PSendSysMessage("This portal is for %s's party.", name.c_str());
+            return true;
+        }
+    }
+
+    // Recorded before the trip and dropped again if it fails: the arrival
+    // runs on the far teleport, after this returns.
+    HouseReturn back;
+    back.viaAccount = accountId;
+    back.hostGuid   = open->ownerGuid;
+    back.mapId      = player->GetMapId();
+    back.instanceId = player->GetInstanceId();
+    back.x          = player->GetPositionX();
+    back.y          = player->GetPositionY();
+    back.z          = player->GetPositionZ();
+    back.o          = player->GetOrientation();
+
+    std::string error;
+    bool const went = owner ? SendPlayerHome(player, error)
+                            : EnterHouseAsVisitor(player, *house, error);
+    if (!went)
+    {
+        if (!error.empty())
+            ChatHandler(player).SendSysMessage(error.c_str());
+        return true;
+    }
+
+    SaveReturn(player->GetGUIDLow(), back);
+    m_enteredBy.erase(player->GetGUIDLow());
+    m_staffVisits.erase(player->GetGUIDLow());
+    return true;
+}
+
+// From WorldSession::LogoutPlayer. Only the record goes here: the portal may
+// stand on a map another thread updates, so it closes itself (IsHomePortalOpen).
+void HouseMgr::CloseHomePortal(Player* player)
+{
+    if (!player || !player->GetSession())
+        return;
+
+    std::map<uint32, HouseHomePortal>::iterator open = m_homePortals.find(player->GetSession()->GetAccountId());
+    if (open != m_homePortals.end() && open->second.ownerGuid == player->GetObjectGuid())
+        m_homePortals.erase(open);
+}
+
+bool HouseMgr::IsHomePortalOpen(ObjectGuid goGuid) const
+{
+    for (std::map<uint32, HouseHomePortal>::const_iterator itr = m_homePortals.begin();
+         itr != m_homePortals.end(); ++itr)
+        if (itr->second.goGuid == goGuid)
+            return true;
+    return false;
+}
+
+bool HouseMgr::IsPortalGuest(Player* guest, House const& house) const
+{
+    std::map<uint32, HouseReturn>::const_iterator ret = m_returns.find(guest->GetGUIDLow());
+    if (ret == m_returns.end() || ret->second.viaAccount != house.accountId)
+        return false;
+
+    Group* group = guest->GetGroup();
+    if (!group)
+        return false;
+
+    // The owner's character that is online now, which may not be the one who
+    // cast the portal: an account has one character online at most.
+    WorldSession* session = sWorld.FindSession(house.accountId);
+    Player* owner = session ? session->GetPlayer() : nullptr;
+    return owner && owner->IsInWorld() && group->IsMember(owner->GetObjectGuid());
+}
+
+bool HouseMgr::SendPlayerBack(Player* player, HouseReturn const& back, std::string& error)
+{
+    MapEntry const* entry = sMapStorage.LookupEntry<MapEntry>(back.mapId);
+    if (!entry)
+        return false;
+
+    WorldLocation to(back.mapId, back.x, back.y, back.z, back.o);
+    char const* why = nullptr;
+
+    // TeleportTo cannot name an instance: it takes the bind. So check that the
+    // bind still points at the copy they left. If the dungeon reset, or they
+    // left the group that owns it, the bind would make a new empty copy and
+    // put them deep inside it.
+    if (entry->IsDungeon())
+    {
+        DungeonPersistentState* state = player->GetBoundInstanceSaveForSelfOrGroup(back.mapId);
+        if (!state || state->GetInstanceId() != back.instanceId)
+        {
+            AreaTriggerTeleport const* at = sObjectMgr.GetGoBackTrigger(back.mapId);
+            if (!at)
+                return false;
+            to = at->destination;
+
+            // A copy still loaded is held by somebody, so it did not reset:
+            // they lost it by leaving the party that holds it.
+            why = sMapPersistentStateMgr.GetPersistentState(back.mapId, back.instanceId)
+                ? "You are no longer in that party. You are at the dungeon entrance."
+                : "That dungeon has reset. You are at its entrance.";
+        }
+    }
+
+    if (!player->TeleportTo(to.mapId, to.x, to.y, to.z, to.o))
+    {
+        error = "The way back is closed. Try again soon.";
+        return false;
+    }
+
+    if (why)
+        ChatHandler(player).SendSysMessage(why);
+    return true;
+}
+
+void HouseMgr::ForgetReturn(Player* player)
+{
+    if (!player || player->GetMapId() != HOUSE_MAP_ID)
+        return;
+    if (player->GetSession()->PlayerLogout())
+        return;
+    if (player->GetTeleportDest().mapId == HOUSE_MAP_ID)
+        return;
+
+    m_staffVisits.erase(player->GetGUIDLow());
+    if (!m_returns.count(player->GetGUIDLow()))
+        return;
+
+    DropReturn(player->GetGUIDLow());
+}
+
+void HouseMgr::SaveReturn(uint32 guid, HouseReturn const& back)
+{
+    m_returns[guid] = back;
+    CharacterDatabase.DirectPExecute(
+        "REPLACE INTO character_house_return (guid, via_account, host_guid, map, instance, x, y, z, o) "
+        "VALUES (%u, %u, %u, %u, %u, %f, %f, %f, %f)",
+        guid, back.viaAccount, back.hostGuid.GetCounter(), back.mapId, back.instanceId,
+        back.x, back.y, back.z, back.o);
+}
+
+void HouseMgr::DropReturn(uint32 guid)
+{
+    m_returns.erase(guid);
+    CharacterDatabase.DirectPExecute("DELETE FROM character_house_return WHERE guid = %u", guid);
+}
+
+void HouseMgr::LoadReturns()
+{
+    m_returns.clear();
+
+    QueryResult* result = CharacterDatabase.Query(
+        "SELECT guid, via_account, host_guid, map, instance, x, y, z, o FROM character_house_return");
+    if (!result)
+        return;
+
+    do
+    {
+        Field* f = result->Fetch();
+        HouseReturn& back = m_returns[f[0].GetUInt32()];
+        back.viaAccount = f[1].GetUInt32();
+        back.hostGuid   = ObjectGuid(HIGHGUID_PLAYER, f[2].GetUInt32());
+        back.mapId      = f[3].GetUInt32();
+        back.instanceId = f[4].GetUInt32();
+        back.x          = f[5].GetFloat();
+        back.y          = f[6].GetFloat();
+        back.z          = f[7].GetFloat();
+        back.o          = f[8].GetFloat();
+    }
+    while (result->NextRow());
+    delete result;
+
+    sLog.outString(">> Housing: %u Portal Home way(s) back.", uint32(m_returns.size()));
+}
+
+void HouseMgr::TeachHomePortal(Player* player)
+{
+    if (!m_enabled || !player || player->HasSpell(HOUSE_HOME_PORTAL_SPELL))
+        return;
+
+    // A bot has no use for it. Same session test as CheckPortal.
+    std::string const& addr = player->GetSession()->GetRemoteAddress();
+    if (addr == "<BOT>" || addr == "disconnected/bot")
+        return;
+
+    if (!GetHouseByAccount(player->GetSession()->GetAccountId()))
+        return;
+
+    player->learnSpell(HOUSE_HOME_PORTAL_SPELL, false);
 }
 
 //== the look, live ==========================================================
@@ -2120,8 +2500,94 @@ void AddSC_house_control()
     pNewScript->RegisterSelf();
 }
 
+// THE PORTAL HOME OBJECT. pGOHello returns true on every path, which stops the
+// goober state machine closing the portal after one click (see the gear above).
+static bool GOHello_go_house_home_portal(Player* player, GameObject* go)
+{
+    return sHouseMgr.UseHomePortal(player, go);
+}
+
+// Closes the portal once HouseMgr forgets it: the caster logged out, or cast a
+// second one. The check runs here, on the portal's own map.
+struct go_house_home_portal_ai : public GameObjectAI
+{
+    explicit go_house_home_portal_ai(GameObject* go) : GameObjectAI(go), m_timer(HOUSE_PORTAL_INTERVAL), m_closed(false) {}
+
+    void UpdateAI(uint32 diff) override
+    {
+        if (m_closed)
+            return;
+
+        if (m_timer > diff)
+        {
+            m_timer -= diff;
+            return;
+        }
+        m_timer = HOUSE_PORTAL_INTERVAL;
+
+        if (sHouseMgr.IsHomePortalOpen(me->GetObjectGuid()))
+            return;
+
+        m_closed = true;
+        me->SetRespawnTime(0);
+        me->Delete();
+    }
+
+    uint32 m_timer;
+    bool   m_closed;
+};
+
+static GameObjectAI* GetAI_go_house_home_portal(GameObject* go)
+{
+    return new go_house_home_portal_ai(go);
+}
+
+// THE SPELL. Its first effect is a DUMMY that does nothing: the portal opens in
+// OnSuccessfulFinish, so an interrupted cast opens nothing and costs no
+// cooldown. Bound through spell_template.script_name (sql/custom/206).
+struct spell_house_portal_home : public SpellScript
+{
+    SpellCastResult OnCheckCast(Spell* spell, bool strict) const override
+    {
+        Player* player = spell->m_casterUnit ? spell->m_casterUnit->ToPlayer() : nullptr;
+        if (!player)
+            return SPELL_FAILED_DONT_REPORT;
+
+        // Checked at the start of the cast and again at its end. Only the
+        // first says why, or a refusal prints twice.
+        return sHouseMgr.CanOpenHomePortal(player, strict) ? SPELL_CAST_OK : SPELL_FAILED_DONT_REPORT;
+    }
+
+    bool OnEffectExecute(Spell* /*spell*/, SpellEffectIndex /*effIdx*/) const override
+    {
+        return false;
+    }
+
+    void OnSuccessfulFinish(Spell* spell) const override
+    {
+        if (Player* player = spell->m_casterUnit ? spell->m_casterUnit->ToPlayer() : nullptr)
+            sHouseMgr.OpenHomePortal(player);
+    }
+};
+
+static SpellScript* GetSpellScript_spell_house_portal_home(SpellEntry const*)
+{
+    return new spell_house_portal_home();
+}
+
 void AddSC_house_portal()
 {
+    Script* pHome = new Script;
+    pHome->Name = "go_house_home_portal";
+    pHome->pGOHello = &GOHello_go_house_home_portal;
+    pHome->GOGetAI = &GetAI_go_house_home_portal;
+    pHome->RegisterSelf();
+
+    pHome = new Script;
+    pHome->Name = "spell_house_portal_home";
+    pHome->GetSpellScript = &GetSpellScript_spell_house_portal_home;
+    pHome->RegisterSelf();
+
     // The portal itself carries no menu -- it cannot be clicked, and hanging one
     // on it only produced hooks that never fired.
     Script* pNewScript = new Script;

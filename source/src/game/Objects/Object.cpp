@@ -3791,7 +3791,37 @@ extern uint32 Playerbot_CompanionOwner(uint32 guidLow);
 namespace
 {
     std::unordered_set<uint32> s_warCreatures;
-    std::unordered_set<uint32> s_warQuests;
+    // Listed creature entry -> the quests against it.
+    std::unordered_map<uint32, std::vector<uint32>> s_warQuests;
+    // A camp: the listed creatures of one faction template in one zone.
+    // Camp key -> the quests against any creature in it.
+    std::unordered_map<uint64, std::vector<uint32>> s_campQuests;
+    // Spawn guid of a listed creature -> its zone, from its spawn point.
+    std::unordered_map<uint32, uint32> s_spawnZone;
+    // Listed creature entry -> the quests it ends. It stays out of its camp
+    // for a player who has one of them in the log.
+    std::unordered_map<uint32, std::vector<uint32>> s_campEnds;
+    uint32 s_warQuestCount = 0;
+
+    uint64 CampKey(uint32 factionTemplate, uint32 zone)
+    {
+        return (uint64(factionTemplate) << 32) | zone;
+    }
+
+    // The listed creature that summoned this one, if any: the Voidwalker of a
+    // Dalaran Conjuror. The guid carries the entry, so the map is asked only
+    // when the summoner is listed.
+    Creature const* WarSummoner(Creature const* creature)
+    {
+        ObjectGuid guid = creature->GetOwnerGuid();
+        if (guid.IsEmpty())
+            guid = creature->GetCreatorGuid();
+        if (guid.IsEmpty() && creature->IsTemporarySummon())
+            guid = static_cast<TemporarySummon const*>(creature)->GetSummonerGuid();
+        if (!guid.IsCreature() || !s_warCreatures.count(guid.GetEntry()))
+            return nullptr;
+        return creature->GetMap()->GetCreature(guid);
+    }
 
     // The races born at war with a faction: the rows of its base reputation
     // that carry the At War flag.
@@ -3816,6 +3846,10 @@ bool FactionlessWar::Load()
 {
     s_warCreatures.clear();
     s_warQuests.clear();
+    s_campQuests.clear();
+    s_spawnZone.clear();
+    s_campEnds.clear();
+    s_warQuestCount = 0;
 
     // A SELECT on a missing table is ASSERT(false) in HandleMySQLError.
     bool present = false;
@@ -3860,9 +3894,10 @@ bool FactionlessWar::Load()
         delete result;
     }
 
-    // A quest is against a listed creature when its own races are born at war
-    // with that creature's faction. A Horde quest that only shares an item with
-    // an Alliance quest mob is not.
+    // A quest is against a listed creature when its own stock races are born
+    // at war with that creature's faction. A Horde quest that only shares an
+    // item with an Alliance quest mob is not: without this check, Red Silk
+    // Bandanas (214) would set Alliance players at war with Captain Silas.
     auto against = [](Quest const* quest, uint32 entry)
     {
         if (!s_warCreatures.count(entry))
@@ -3877,20 +3912,83 @@ bool FactionlessWar::Load()
         if (!quest->GetRequiredRaces())
             continue;
 
-        bool gated = false;
-        for (int i = 0; i < QUEST_OBJECTIVES_COUNT && !gated; ++i)
-            gated = quest->ReqCreatureOrGOId[i] > 0 && !quest->ReqSpell[i]
-                && against(quest, uint32(quest->ReqCreatureOrGOId[i]));
-        for (int i = 0; i < QUEST_ITEM_OBJECTIVES_COUNT && !gated; ++i)
+        std::unordered_set<uint32> targets;
+        for (int i = 0; i < QUEST_OBJECTIVES_COUNT; ++i)
+            if (quest->ReqCreatureOrGOId[i] > 0 && !quest->ReqSpell[i]
+                && against(quest, uint32(quest->ReqCreatureOrGOId[i])))
+                targets.insert(uint32(quest->ReqCreatureOrGOId[i]));
+        for (int i = 0; i < QUEST_ITEM_OBJECTIVES_COUNT; ++i)
         {
             auto drop = droppedBy.find(quest->ReqItemId[i]);
             if (drop != droppedBy.end())
                 for (uint32 entry : drop->second)
-                    gated = gated || against(quest, entry);
+                    if (against(quest, entry))
+                        targets.insert(entry);
         }
 
-        if (gated)
-            s_warQuests.insert(itr.first);
+        for (uint32 entry : targets)
+            s_warQuests[entry].push_back(itr.first);
+        if (!targets.empty())
+            ++s_warQuestCount;
+    }
+
+    // The zone of every spawn of a listed creature, and the zones each entry
+    // stands in. A spawn can roll one of four entries (id to id4).
+    std::unordered_map<uint32, std::unordered_set<uint32>> entryZones;
+    if (QueryResult* result = WorldDatabase.Query(
+            "SELECT c.guid, c.map, c.position_x, c.position_y, c.position_z, c.id, c.id2, c.id3, c.id4 "
+            "FROM creature c JOIN factionless_war_creature w ON w.entry IN (c.id, c.id2, c.id3, c.id4)"))
+    {
+        do
+        {
+            Field* fields = result->Fetch();
+            uint32 zone = sTerrainMgr.GetZoneId(fields[1].GetUInt32(),
+                fields[2].GetFloat(), fields[3].GetFloat(), fields[4].GetFloat());
+            if (!zone)
+                continue;
+            s_spawnZone[fields[0].GetUInt32()] = zone;
+            for (int i = 5; i < 9; ++i)
+                if (uint32 entry = fields[i].GetUInt32())
+                    if (s_warCreatures.count(entry))
+                        entryZones[entry].insert(zone);
+        }
+        while (result->NextRow());
+        delete result;
+    }
+
+    // A quest against one creature of a camp is against the whole camp, so
+    // the camp fights together. Camps are per zone: one faction template
+    // covers the Hillsbrad farmers and Kalman Azureborn in Stormwind.
+    for (auto const& itr : s_warQuests)
+    {
+        CreatureInfo const* info = sObjectMgr.GetCreatureTemplate(itr.first);
+        auto zones = entryZones.find(itr.first);
+        if (!info || zones == entryZones.end())
+            continue;
+        for (uint32 zone : zones->second)
+        {
+            std::vector<uint32>& quests = s_campQuests[CampKey(info->faction, zone)];
+            for (uint32 questId : itr.second)
+                if (std::find(quests.begin(), quests.end(), questId) == quests.end())
+                    quests.push_back(questId);
+        }
+    }
+
+    // A camp member that ends a quest stays at peace with a player who has
+    // that quest in the log. Deckmaster Darkhollow ends Kul Tiran Provisions
+    // and stands in the Kul Tiran camp in the Barrens: without this, a Horde
+    // player with Anchor's End could not hand Provisions in.
+    if (QueryResult* result = WorldDatabase.Query(
+            "SELECT r.id, r.quest FROM creature_involvedrelation r "
+            "JOIN factionless_war_creature w ON w.entry = r.id"))
+    {
+        do
+        {
+            Field* fields = result->Fetch();
+            s_campEnds[fields[0].GetUInt32()].push_back(fields[1].GetUInt32());
+        }
+        while (result->NextRow());
+        delete result;
     }
     return true;
 }
@@ -3901,36 +3999,73 @@ bool FactionlessWar::AtWar(Player const* player, WorldObject const* target)
         return false;
 
     Creature const* creature = target->ToCreature();
-    if (!creature || !s_warCreatures.count(creature->GetEntry()))
+    if (!creature)
         return false;
-
-    // The creature's current template, so a script that turns it friendly wins.
-    FactionTemplateEntry const* ft = creature->GetFactionTemplateEntry();
-    FactionEntry const* faction = ft ? sObjectMgr.GetFactionEntry(ft->faction) : nullptr;
-    if (!faction)
-        return false;
-
-    auto bornAtWar = [faction](Player const* who)
+    if (!s_warCreatures.count(creature->GetEntry()))
     {
-        int idx = faction->GetIndexFitTo(who->GetRaceMask(), who->GetClassMask());
-        return idx >= 0 && (faction->ReputationFlags[idx] & FACTION_FLAG_AT_WAR);
+        // A summon fights its summoner's war. It wears the summoner's
+        // faction, so it would otherwise stand at peace beside it.
+        if (Creature const* summoner = WarSummoner(creature))
+            return AtWar(player, summoner);
+        return false;
+    }
+
+    // A script that sets the creature a faction of its own (a scripted fight,
+    // an escort) wins: the war applies only while it wears its template's.
+    CreatureInfo const* info = creature->GetCreatureInfo();
+    if (!info || creature->GetFactionTemplateId() != info->faction)
+        return false;
+
+    // The quests against this creature, and the quests against its camp. A
+    // creature with no spawn row (a summon) has no camp.
+    std::vector<uint32> const* direct = nullptr;
+    std::vector<uint32> const* camp = nullptr;
+    auto quests = s_warQuests.find(creature->GetEntry());
+    if (quests != s_warQuests.end())
+        direct = &quests->second;
+    auto zone = s_spawnZone.find(creature->GetGUIDLow());
+    if (zone != s_spawnZone.end())
+    {
+        auto campQuests = s_campQuests.find(CampKey(info->faction, zone->second));
+        if (campQuests != s_campQuests.end())
+            camp = &campQuests->second;
+    }
+    if (!direct && !camp)
+        return false;
+
+    auto ends = s_campEnds.find(creature->GetEntry());
+    auto holdsAny = [](Player const* who, std::vector<uint32> const* list)
+    {
+        if (list)
+            for (uint32 questId : *list)
+                if (who->IsCurrentQuest(questId))
+                    return true;
+        return false;
     };
-    if (bornAtWar(player))
+    auto holds = [&](Player const* who)
+    {
+        if (holdsAny(who, direct))
+            return true;
+        if (ends != s_campEnds.end() && holdsAny(who, &ends->second))
+            return false;
+        return holdsAny(who, camp);
+    };
+    if (holds(player))
         return true;
 
-    // A companion fights what its owner fights. It is a Player of its own race,
-    // so a Horde player's Human companion would otherwise stand at peace with
-    // the mob its owner is fighting. The owner must be on the same map.
+    // A companion fights what its owner fights. Its own log is empty, so it
+    // would otherwise stand at peace with the mob its owner is fighting. The
+    // owner must be on the same map.
     if (uint32 owner = Playerbot_CompanionOwner(player->GetGUIDLow()))
         if (Player const* master = player->GetMap()->GetPlayer(ObjectGuid(HIGHGUID_PLAYER, owner)))
-            return bornAtWar(master);
+            return holds(master);
 
     return false;
 }
 
-bool FactionlessWar::IsGatedQuest(uint32 questId)
+bool FactionlessWar::IsWarCreature(Creature const* creature)
 {
-    return s_warQuests.count(questId) != 0;
+    return s_warCreatures.count(creature->GetEntry()) != 0 || WarSummoner(creature);
 }
 
 uint32 FactionlessWar::CreatureCount()
@@ -3940,7 +4075,12 @@ uint32 FactionlessWar::CreatureCount()
 
 uint32 FactionlessWar::QuestCount()
 {
-    return uint32(s_warQuests.size());
+    return s_warQuestCount;
+}
+
+uint32 FactionlessWar::CampCount()
+{
+    return uint32(s_campQuests.size());
 }
 
 ReputationRank WorldObject::GetFactionReactionTo(FactionTemplateEntry const* factionTemplateEntry, WorldObject const* target)

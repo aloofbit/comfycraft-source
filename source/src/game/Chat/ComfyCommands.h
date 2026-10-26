@@ -30,6 +30,7 @@ struct ComfyCommands
     static bool HandleSetSpeedCommand(ChatHandler* handler, char* args);
     static bool HandleLevelCapCommand(ChatHandler* handler, char* args);
     static bool HandleDungeonTuningCommand(ChatHandler* handler, char* args);
+    static bool HandleWcRitualCommand(ChatHandler* handler, char* args);
     static bool HandleCraftPointsCommand(ChatHandler* handler, char* args);
     static bool HandleLootLuckCommand(ChatHandler* handler, char* args);
     static bool HandleLootRatesCommand(ChatHandler* handler, char* args);

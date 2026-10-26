@@ -332,11 +332,11 @@ namespace CompanionOwnership
 
     void QueueDismiss(uint32 companionGuid)
     {
-        // Parked is the one case where leaving the party is not a dismissal:
-        // the core evicts every bot from the party as their owner logs out,
-        // through the same Group::RemoveMember hook, and ParkAll has already
-        // run by then. Queue it here and the owner's next login would delete
-        // the companions it was about to bring back.
+        // Parked is the one case where leaving the party is not a dismissal.
+        // Since 2026-10-25 a logout keeps the party, but a parked companion can
+        // still leave it while its owner is away (the party breaks up, a
+        // leader kicks it). Queue it here and the owner's next login would
+        // delete the companions it was about to bring back.
         if (!companionGuid)
             return;
         WriteLock lock(s_lock);

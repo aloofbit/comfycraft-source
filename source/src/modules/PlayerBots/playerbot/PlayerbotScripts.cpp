@@ -103,9 +103,10 @@ class PlayerbotGroupScript : public GroupScript
             // Elowen. So queue every companion of the departing player as if
             // they had been uninvited one by one.
             //
-            // A logout comes through here too, since the core evicts the bots
-            // and then removes the player, but by then ParkAll has stamped the
-            // companions and QueueDismiss lets a parked one through untouched.
+            // A logout no longer comes through here: it keeps the party (since
+            // 2026-10-25). A parked companion that leaves the party while its
+            // owner is away still does, and QueueDismiss lets it through
+            // untouched.
             for (uint32 companion : CompanionOwnership::CompanionsOf(guid.GetCounter()))
                 CompanionOwnership::QueueDismiss(companion);
         }
@@ -300,11 +301,11 @@ class PlayerbotPlayerScript : public PlayerScript
         // Was the RemovePlayerbotAI/Mgr pair at the head of LogoutPlayer.
         void OnBeforeLogout(Player* player) override
         {
-            // Park the companions BEFORE the manager logs them out, and before
-            // the core evicts them from the party further down LogoutPlayer.
-            // That eviction fires the group hook that would otherwise queue
-            // them for deletion, and this stamp is what tells it not to. Both
-            // a clean logout and a dropped connection come through here.
+            // Park the companions BEFORE the manager logs them out. The stamp
+            // brings them back at the next login, and tells the group hook not
+            // to queue them for deletion if they leave the party meanwhile.
+            // Both a clean logout and a dropped connection come through here;
+            // neither takes anyone out of the party (2026-10-25).
             if (player && sPlayerbotAIConfig.enabled)
                 CompanionOwnership::ParkAll(player->GetGUIDLow());
 

@@ -33,6 +33,7 @@
 #include "BattleGround.h"
 #include "MapManager.h"
 #include "MapPersistentStateMgr.h"
+#include "Housing/HouseMgr.h"
 #include "Util.h"
 #include "LootMgr.h"
 #include "LFGMgr.h"
@@ -162,8 +163,13 @@ bool Group::Create(ObjectGuid guid, const char * name)
     if (!AddMember(guid, name))
         return false;
 
+    // DIRECT. The first invitee's group_member INSERT follows in the same tick
+    // as a plain PExecute, and async writes are unordered: it could land before
+    // the DELETE above and be wiped. The group then lived in memory with two
+    // members and on disk with one, and the startup's group load disbanded it,
+    // dungeon bind and all (2026-10-25).
     if (!isBGGroup())
-        CharacterDatabase.CommitTransaction();
+        CharacterDatabase.CommitTransactionDirect();
 
     _updateLeaderFlag();
 
@@ -2320,6 +2326,14 @@ void Group::_homebindIfInstance(Player *player)
     if (player && !player->IsGameMaster())
     {
         Map* map = player->GetMap();
+
+        // A HOUSE HAS ITS OWN WAY OUT. HouseMgr::EvictLapsedVisitors shows a
+        // guest out through their door or portal within half a second; the
+        // stock 60 s hearthstone countdown only flashed up first, and for a
+        // guest the poll leaves alone it sent them to their hearthstone.
+        if (map->GetId() == HOUSE_MAP_ID)
+            return;
+
         if (map->IsDungeon())
         {
             // leaving the group in an instance, the homebind timer is started

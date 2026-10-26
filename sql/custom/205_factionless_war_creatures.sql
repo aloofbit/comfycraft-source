@@ -14,15 +14,12 @@
 --  Until 2026-10-24 players went round it with the At War box in the
 --  reputation pane. The bug 79 fix (PEACE_FORCED) closed that.
 --
---  A creature in this table keeps the stock war. It is hostile to a race
---  that is born at war with its faction, and friendly to the rest. The viewer
---  at war is sent faction template 14 (Monster), so the client draws it red
---  and lets the player attack it (FactionlessWar.h).
---
---  A quest with a race gate whose kill target, or the creature that drops
---  its item, is in this table keeps its stock race gate, so the other side
---  is not offered a quest it cannot finish. Factionless.IgnoreQuestRaces
---  still opens every other quest.
+--  A creature in this table is hostile to a player who has a quest against
+--  it in the log, and friendly to everyone else. A quest is against it when
+--  the quest needs it killed, or needs its quest-only drop, and the quest's
+--  stock races are born at war with its faction. The viewer at war is sent
+--  faction template 14 (Monster), so the client draws it red and lets the
+--  player attack it (FactionlessWar.h). Every race can take every quest.
 --
 --  The seed is every spawned creature of a peace faction that a quest needs
 --  killed (no ReqSpellCast) or that drops a quest-only item, where the

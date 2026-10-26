@@ -124,6 +124,7 @@ namespace ai { namespace botdiag {
 #include "ComfyTitles.h"
 #include "LevelCap.h"
 #include "CraftPoints.h"
+#include "FactionlessWar.h"
 
 #include <sstream>
 #include <mutex>
@@ -6003,6 +6004,9 @@ void Player::DeleteFromDB(ObjectGuid playerguid, uint32 accountId, bool updateRe
             // sql/custom/138 and 140, the same reuse, on the fish and jump boards.
             CharacterDatabase.PExecute("DELETE FROM character_fish_catch WHERE guid = '%u'", lowguid);
             CharacterDatabase.PExecute("DELETE FROM character_jumps WHERE guid = '%u'", lowguid);
+            // sql/custom/209, the same reuse. Left behind, a new character
+            // who logs in inside a house would leave by somebody else's portal.
+            CharacterDatabase.PExecute("DELETE FROM character_house_return WHERE guid = '%u'", lowguid);
             // sql/custom/110. ZEROED, NOT DELETED: a match has two people in
             // it, and deleting the row would take a win away from the one who
             // is still here. One statement, so the three columns cannot land
@@ -19559,11 +19563,18 @@ void Player::ConvertInstancesToGroup(Player *player, Group *group, ObjectGuid pl
 
     // if the player's not online we don't know what binds it has
     if (!player || !group || has_binds)
-        CharacterDatabase.PExecute("INSERT INTO group_instance SELECT guid, instance, permanent FROM character_instance WHERE guid = '%u'", player_lowguid);
+        // IGNORE: a group that broke up can leave a row for this leader and
+        // instance behind until the next startup's cleanup, and a duplicate key
+        // aborts the server (errors.log has four, 2026-10-18 to 10-22).
+        CharacterDatabase.DirectPExecute("INSERT IGNORE INTO group_instance SELECT guid, instance, permanent FROM character_instance WHERE guid = '%u'", player_lowguid);
 
     // the following should not get executed when changing leaders
+    //
+    // DIRECT, both. Async writes are unordered: this DELETE could run before
+    // the copy above, and the group's bind then lived in memory only. The next
+    // startup deleted the dungeon copy as unbound (2026-10-25).
     if (!player || has_solo)
-        CharacterDatabase.PExecute("DELETE FROM character_instance WHERE guid = '%u' AND permanent = 0", player_lowguid);
+        CharacterDatabase.DirectPExecute("DELETE FROM character_instance WHERE guid = '%u' AND permanent = 0", player_lowguid);
 }
 
 bool Player::_LoadHomeBind(QueryResult *result)
@@ -23337,10 +23348,17 @@ void Player::UpdateForQuestWorldObjects()
      */
     std::vector<ObjectGuid> botNpcs;
 
+    // ComfyCraft: a quest mob at war with whoever holds its quest
+    // (FactionlessWar.h). The client reads the faction field only when the
+    // creature comes into view, so it is sent again on every quest change.
+    std::vector<ObjectGuid> warCreatures;
+
     std::shared_lock<std::shared_mutex> lock(m_visibleGUIDs_lock);
     for (const auto& guid : m_visibleGUIDs)
     {
-        if (guid.IsGameObject())
+        if (guid.IsCreatureOrPet())  // a Conjuror's Voidwalker is a Pet
+            warCreatures.push_back(guid);
+        else if (guid.IsGameObject())
         {
             if (GameObject* obj = GetMap()->GetGameObject(guid))
                 if (!obj->IsTransport())
@@ -23356,6 +23374,11 @@ void Player::UpdateForQuestWorldObjects()
     lock.unlock();
     if (count)
         upd.Send(GetSession());
+
+    for (const auto& guid : warCreatures)
+        if (Creature* creature = GetMap()->GetAnyTypeCreature(guid))
+            if (FactionlessWar::IsWarCreature(creature))
+                creature->ForceValuesUpdateAtIndex(UNIT_FIELD_FACTIONTEMPLATE);
 
     /*
      * THE ! AND ? OVER A BOT NPC'S HEAD, 2026-09-15.

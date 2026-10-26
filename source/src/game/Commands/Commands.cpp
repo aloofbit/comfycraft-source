@@ -4060,6 +4060,32 @@ bool ComfyCommands::HandleLevelCapCommand(ChatHandler* handler, char* args)
     return true;
 }
 
+// .wcritual, for testing: the targeted Disciple of Naralex (3678) skips his
+// escort and the four Fang lords. He and the GM go to the ritual circle, and the
+// ritual starts. The script handles script event 1 (wailing_caverns.cpp).
+bool ComfyCommands::HandleWcRitualCommand(ChatHandler* handler, char* /*args*/)
+{
+    Creature* disciple = handler->GetSelectedCreature();
+    if (!disciple || disciple->GetEntry() != 3678 || !disciple->IsAlive() || !disciple->AI())
+    {
+        handler->SendSysMessage("Target the Disciple of Naralex in Wailing Caverns.");
+        handler->SetSentErrorMessage(true);
+        return false;
+    }
+    if (disciple->IsInCombat())
+    {
+        handler->SendSysMessage("The Disciple is in combat.");
+        handler->SetSentErrorMessage(true);
+        return false;
+    }
+
+    Player* player = handler->m_session->GetPlayer();
+    disciple->AI()->OnScriptEventHappened(1, 0, player);
+    player->NearTeleportTo(96.0f, 236.0f, -95.6f, 0.0f);
+    handler->SendSysMessage("Ritual started.");
+    return true;
+}
+
 // Dungeon tuning (Objects/DungeonTuning.h). With no argument it re-reads
 // tw_char.dungeon_tuning and dungeon_tuning_map, which is what the website
 // sends after it writes them. With two percentages it writes the pair for
@@ -15501,6 +15527,7 @@ namespace
         { "setspeed",          ".setspeed <rate> [name]   walk, run and swim speed, 1 is normal, until the next login" },
         { "levelcap",          ".levelcap [level] | gold <percent>   the level XP stops at, or set it (0 is none); the quest gold paid at the cap (100 is the default)" },
         { "dungeontuning",     ".dungeontuning [health% damage%]   dungeon creature health and damage, or set them (100 is stock)" },
+        { "wcritual",          ".wcritual   target the Disciple of Naralex: skip to the Wailing Caverns ritual" },
         { "craftpoints",       ".craftpoints [spell id]   re-read the skill points per craft, or show one recipe's points" },
         { "lootluck",          ".lootluck [on | off | log on | log off]   bad-luck protection on quest drops, or set it" },
         { "lootrates",         ".lootrates   re-read the gear drop rates and show them" },

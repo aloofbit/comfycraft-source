@@ -52,6 +52,7 @@
 #include "Config.hpp"
 #include "Logging/DatabaseLogger.hpp"
 #include "ComfyTitles.h"
+#include "Housing/HouseMgr.h"
 
 // config option SkipCinematics supported values
 enum CinematicsSkipMode
@@ -1004,6 +1005,10 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
 
         pCurrChar->SetPlayerVariable(PlayerVariables::PendingChallengeMask, "0");
     }
+
+    // Portal Home, for every character of an account that owns a house.
+    // The claim teaches the character that claims; this reaches the rest.
+    sHouseMgr.TeachHomePortal(pCurrChar);
 
     // Set FFA PvP for non GM in non-rest mode
     if (sWorld.IsFFAPvPRealm() && !pCurrChar->IsGameMaster() && !pCurrChar->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_RESTING))

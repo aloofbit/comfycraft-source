@@ -671,6 +671,7 @@ void WorldSession::LogoutPlayer(bool Save)
         if (ObjectGuid lootGuid = GetPlayer()->GetLootGuid())
             DoLootRelease(lootGuid);
         LootLuck::Forget(_player->GetGUIDLow());
+        sHouseMgr.CloseHomePortal(_player);
 
         disabledSocials = _player->HasGMDisabledSocials();
 
@@ -811,7 +812,13 @@ void WorldSession::LogoutPlayer(bool Save)
             // inside a house outside its door, owner and guest alike.
             bool const inHouse = map->GetId() == HOUSE_MAP_ID;
 
-            if (map->IsNonRaidDungeon() && _player->GetGroup() && !inHouse)
+            // A LOGOUT IN A DUNGEON KEEPS YOUR PLACE. The stock rule sent a
+            // grouped player to the entrance. The logout keeps the group now
+            // (below), so the group's bind holds the copy, and LoadFromDB puts
+            // a login with no bind (the copy reset) at the entrance. Only a
+            // map with no persistent state still sends them out here.
+            if (map->IsNonRaidDungeon() && _player->GetGroup() && !inHouse
+                && !static_cast<DungeonMap*>(map)->GetPersistanceState())
             {
                 AreaTriggerTeleport const* at = sObjectMgr.GetGoBackTrigger(map->GetId());
                 if (at)
@@ -837,37 +844,14 @@ void WorldSession::LogoutPlayer(bool Save)
         ///- If the player is in a group (or invited), remove him. If the group if then only 1 person, disband the group.
         _player->UninviteFromGroup();
 
-        // remove player from the group if he is:
-        // a) in group; b) not in raid group; c) logging out normally (not being kicked or disconnected)
-        //
-        // For normal logout (m_Socket set): also evict any bot members first so
-        // they don't linger in a real-player-less group after we leave.  We do
-        // this BEFORE removing the player so the bots are still in-world and
-        // their group pointers can be properly cleared.  Any bot that already
-        // logged out has a stale m_memberSlots entry; RemoveFromGroup on a null
-        // player is safe and still purges the DB row + slot.
-        if (_player->GetGroup() && !_player->GetGroup()->isRaidGroup() && m_Socket)
-        {
-            Group* grp = _player->GetGroup();
-            std::vector<ObjectGuid> botGuids;
-            for (const auto& slot : grp->GetMemberSlots())
-            {
-                if (slot.guid == _player->GetObjectGuid())
-                    continue;
-                Player* member = sObjectMgr.GetPlayer(slot.guid);
-                if (!member || Script_IsMachineDriven(member))
-                    botGuids.push_back(slot.guid);
-            }
-            for (const ObjectGuid& guid : botGuids)
-            {
-                if (!_player->GetGroup())
-                    break; // group was disbanded mid-loop
-                Player::RemoveFromGroup(_player->GetGroup(), guid);
-            }
-            // Remove the player last (may trigger auto-disband if only 1 left).
-            if (_player->GetGroup())
-                _player->RemoveFromGroup();
-        }
+        // A LOGOUT KEEPS YOU IN THE GROUP, shown offline, as in the 1.12 game
+        // and as a dropped connection always did here. The stock core took a
+        // player out of a party at a normal logout, and our version evicted
+        // the bots first. That broke the group, its disband reset the dungeon
+        // copy, and the login put you at the entrance (2026-10-25). Hired
+        // companions park and log out with their owner and rejoin at login
+        // (PlayerbotMgr::RestoreParkedCompanions copes with one still in the
+        // party).
 
         ///- Send update to group
         if (Group* group = _player->GetGroup())

@@ -3543,6 +3543,52 @@ static void AddComfyReagentFreeCopies(SpellEntryMap& spells)
     sLog.outString("Made %u reagent-free enchant spells.", made);
 }
 
+// ComfyCraft: Portal Home (63000), the house owner's spell
+// (docs/ai/housing/home-portal.md). A copy of Portal: Stormwind for its 10 s
+// cast, portal visual and "not in combat" attribute. The effect becomes a DUMMY
+// that the script skips: TRANS_DOOR attaches the portal to the caster, and an
+// attached object is deleted when the caster changes map. The portal opens in
+// spell_house_portal_home's OnSuccessfulFinish instead.
+//
+// The id is under 65536 because the spellbook packet carries 16-bit ids.
+// patches/build-patch-v.js (COMFY) makes the same row in the client's copy,
+// which draws the name, the cooldown and the mana cost from it. Keep them the
+// same.
+static void AddComfyHomePortalSpell(SpellEntryMap& spells)
+{
+    uint32 const copyId = 63000, realId = 10059;
+    if (realId >= spells.size() || !spells[realId])
+    {
+        sLog.outError("Portal Home: spell %u does not exist.", realId);
+        return;
+    }
+
+    std::unique_ptr<SpellEntry> copy = std::make_unique<SpellEntry>(*spells[realId]);
+    copy->Id = copyId;
+    copy->SpellFamilyName = SPELLFAMILY_GENERIC;
+    copy->SpellFamilyFlags = 0;
+    copy->spellLevel = 0;
+    copy->baseLevel = 0;
+    copy->manaCost = 0;
+    copy->Category = 0;
+    copy->RecoveryTime = 30 * MINUTE * IN_MILLISECONDS;
+    copy->CategoryRecoveryTime = 0;
+    for (uint32 i = 0; i < MAX_SPELL_REAGENTS; ++i)
+    {
+        copy->Reagent[i] = 0;
+        copy->ReagentCount[i] = 0;
+    }
+    copy->Effect[EFFECT_INDEX_0] = SPELL_EFFECT_DUMMY;
+    copy->EffectImplicitTargetA[EFFECT_INDEX_0] = TARGET_UNIT_CASTER;
+    copy->EffectMiscValue[EFFECT_INDEX_0] = 0;
+    copy->InitCachedValues();
+
+    if (copyId >= spells.size())
+        spells.resize(copyId + 1);
+    spells[copyId] = std::move(copy);
+    sLog.outString("Made Portal Home, spell %u.", copyId);
+}
+
 void SpellMgr::LoadSpells()
 {
     mSpellEntryMap.clear();
@@ -3650,6 +3696,7 @@ void SpellMgr::LoadSpells()
     ClearComfyOutdoorsOnly(mSpellEntryMap);
     LoadSpellExtra();
     AddComfyReagentFreeCopies(mSpellEntryMap);
+    AddComfyHomePortalSpell(mSpellEntryMap);
 }
 
 void SpellMgr::LoadSpellExtra()
@@ -3966,4 +4013,5 @@ void SpellMgr::LoadSpellsFromSpellTemplate()
 
     ClearComfyOutdoorsOnly(mSpellEntryMap);
     AddComfyReagentFreeCopies(mSpellEntryMap);
+    AddComfyHomePortalSpell(mSpellEntryMap);
 }

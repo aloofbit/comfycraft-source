@@ -236,6 +236,7 @@ void HouseMgr::LoadFromDB()
     LoadCritterItems();
     LoadStorage();
     LoadSettings();
+    LoadReturns();
 
     // After the houses, because every critter row has to find its house. Its
     // own guid-block check inside, which can disable critters alone and leaves
@@ -2014,7 +2015,14 @@ bool HouseMgr::VisitHouse(Player* player, std::string const& ownerName, std::str
     if (following && IsLocked(*house))
         return Knock(player, *house, host, 0, error);
 
-    return EnterHouseAsVisitor(player, *house, error);
+    // Staff on the bypass are the visitors the eviction poll leaves alone.
+    // Staff who came with a party, a door or a portal leave like anybody else.
+    bool const went = EnterHouseAsVisitor(player, *house, error);
+    if (went && staff && !following)
+        m_staffVisits.insert(player->GetGUIDLow());
+    else if (went)
+        m_staffVisits.erase(player->GetGUIDLow());
+    return went;
 }
 
 // THE ARRIVAL, shared by every way into somebody else's house -- the typed
@@ -2854,6 +2862,14 @@ bool HouseMgr::ClaimHouseAt(Player* player, uint32 portalId, std::string& error)
     // they were not standing in. "Azeroth" is true wherever a door is put, and
     // stays true if houses ever move map again.
     ChatHandler(player).SendSysMessage("A comfy corner of Azeroth is now yours.");
+
+    // Portal Home comes with the house. Other characters on the account learn
+    // it at their next login.
+    if (!player->HasSpell(HOUSE_HOME_PORTAL_SPELL))
+    {
+        TeachHomePortal(player);
+        ChatHandler(player).SendSysMessage("You have learned Portal Home. Cast it anywhere to open a way back here.");
+    }
 
     RememberEntrance(player, portalId);
     return SendPlayerHome(player, error);

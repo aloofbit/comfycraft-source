@@ -2365,8 +2365,8 @@ void LoadPlayerEggLoot();
     if (!FactionlessWar::Load())
         sLog.outString(">> Factionless war: every creature at peace (`factionless_war_creature` is missing; apply sql/custom/205_factionless_war_creatures.sql).");
     else
-        sLog.outString(">> Factionless war: %u creatures stay at war, %u quests keep their race gate.",
-            FactionlessWar::CreatureCount(), FactionlessWar::QuestCount());
+        sLog.outString(">> Factionless war: %u creatures in %u camps, at war with whoever holds one of %u quests.",
+            FactionlessWar::CreatureCount(), FactionlessWar::CampCount(), FactionlessWar::QuestCount());
     sLog.outString("Loading loot luck...");
     if (LootLuck::Load())
         sLog.outString(">> Loot luck: PRD on quest drops is on.");

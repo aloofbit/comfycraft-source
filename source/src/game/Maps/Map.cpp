@@ -2313,6 +2313,10 @@ void DungeonMap::Remove(Player *player, bool remove)
         player->GetTeleportDest().mapId != GetId())
         player->ClearForcedInstance();
 
+    // A Portal Home return point is spent by leaving the house any other way
+    // than its way out. Self-guarding on the map id, like the three below.
+    sHouseMgr.ForgetReturn(player);
+
     // Handles are temporary summons in THIS map, so they have to be despawned
     // while the player is still standing in it. Leaving them to the 30 minute
     // timer would work, but it would also leave a room full of wisps behind for

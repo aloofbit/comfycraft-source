@@ -22,7 +22,6 @@
 #include "QuestDef.h"
 #include "Player.h"
 #include "World.h"
-#include "FactionlessWar.h"
 
 Quest::Quest(Field * questRecord)
 {
@@ -250,12 +249,10 @@ bool Quest::SatisfiesRaceRequirements(uint32 raceMask) const
     // of the copies covers keeps the stock gate and sees only its own copy. A race
     // that no copy covers sees one copy, not all of them.
     //
-    // A quest against a creature that stays at war (FactionlessWar.h) keeps its
-    // gate too: the other side could take it but never kill the target.
+    // A quest against a creature that stays at war is open to every race too:
+    // holding it is what sets the player at war (FactionlessWar.h).
     if (sWorld.getConfig(CONFIG_BOOL_FACTIONLESS_IGNORE_QUEST_RACES))
     {
-        if (FactionlessWar::IsGatedQuest(QuestId))
-            return (reqraces & raceMask) != 0;
         if (m_raceVariantMask & raceMask)
             return (reqraces & raceMask) != 0;
         if (m_raceVariantMask)

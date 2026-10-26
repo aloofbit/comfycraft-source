@@ -342,6 +342,7 @@ namespace MMAP
                 // default is true, will change to false if needed
                 useTerrain = true;
                 useLiquid = true;
+                bool deepWater = false;
                 uint8 liquidType = AREA_NONE;
 
                 // if there is no liquid, don't use liquid
@@ -356,12 +357,11 @@ namespace MMAP
 
                     if (!gDoNotFilterDeepWater)
                     {
+                        // players should not be here, so logically neither should creatures.
+                        // The flag is per chunk and set if any one cell is deep, so dry land
+                        // in the same chunk is kept below (Turtle builds on such chunks).
                         if (liquidType & MAP_LIQUID_TYPE_DARK_WATER)
-                        {
-                            // players should not be here, so logically neither should creatures
-                            useTerrain = false;
-                            useLiquid = false;
-                        }
+                            deepWater = true;
                     }
                     if ((liquidType & (MAP_LIQUID_TYPE_WATER | MAP_LIQUID_TYPE_OCEAN)) != 0)
                         liquidType = AREA_WATER;
@@ -449,7 +449,13 @@ namespace MMAP
                     //liquid under the terrain?
                     if (minTLevel > maxLLevel)
                         useLiquid = false;
+                    else if (deepWater)
+                        useTerrain = false;
                 }
+
+                // deep water: no liquid polys, and terrain only where it stands above the water
+                if (deepWater)
+                    useLiquid = false;
 
                 // store the result
                 if (useLiquid)

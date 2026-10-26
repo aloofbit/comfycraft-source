@@ -403,6 +403,18 @@ bool HouseCritterPetName(uint32 creatureGuidLow, std::string& name);
 // callback. 250ms is under one step at run speed.
 #define HOUSE_PORTAL_INTERVAL   250
 
+// PORTAL HOME. The spell every character on an account with a house knows, and
+// the portal it opens where it was cast. See docs/ai/housing/home-portal.md.
+//
+// The spell id is under 65536 because SMSG_INITIAL_SPELLS sends the spellbook
+// with 16-bit ids: a trained spell at 100000+ comes back as a different spell
+// at the next login. 63000 is free in server/dbc and in the client's Spell.dbc.
+// The server copy is AddComfyHomePortalSpell (SpellMgr.cpp), the client copy
+// is COMFY in patches/build-patch-v.js.
+#define HOUSE_HOME_PORTAL_SPELL     63000
+#define HOUSE_HOME_PORTAL_ENTRY     100015
+#define HOUSE_HOME_PORTAL_LIFETIME  (5 * MINUTE)
+
 // A THOUSAND doors, taken off the TOP of the furniture block. Furniture
 // allocates UPWARD from HOUSE_GO_GUID_MIN, so the two grow towards each other
 // and would need nearly four million placed objects to meet.
@@ -981,6 +993,32 @@ struct HouseKnockTouch
 {
     uint32     portalGuid = 0;
     uint32     lastSeen = 0;                            // WorldTimer ms
+};
+
+// WHERE A PORTAL HOME TRIP STARTED, so the way out puts the player back on that
+// spot. `viaAccount` is the account whose portal it was: a guest may stay while
+// they are in a party with that account's character (IsPortalGuest).
+//
+// `instanceId` is the dungeon copy they left. TeleportTo cannot name an
+// instance, so the way back trusts the bind to take them to it, and checks
+// first that the bind still points there.
+struct HouseReturn
+{
+    uint32     viaAccount = 0;
+    ObjectGuid hostGuid;                                // the character who cast it
+    uint32     mapId = 0;
+    uint32     instanceId = 0;
+    float      x = 0.0f, y = 0.0f, z = 0.0f, o = 0.0f;
+};
+
+// An open Portal Home, one per account. A temporary summon with a lifetime, so
+// a stale row only means the object has already gone.
+struct HouseHomePortal
+{
+    ObjectGuid goGuid;
+    ObjectGuid ownerGuid;                               // the character who cast it
+    uint32     mapId = 0;
+    uint32     instanceId = 0;
 };
 
 class HouseMgr
@@ -1725,6 +1763,28 @@ class HouseMgr
         // hearthstone. instanceId is the house they logged out in, 0 if unknown.
         bool GetLoginExit(Player* player, uint32 instanceId, WorldLocation& loc);
 
+        // PORTAL HOME. CanOpenHomePortal is the spell script's OnCheckCast and
+        // messages the player itself when `say` is set; OpenHomePortal runs when
+        // the cast finishes. UseHomePortal is the portal's click.
+        bool CanOpenHomePortal(Player* player, bool say);
+        void OpenHomePortal(Player* player);
+        bool UseHomePortal(Player* player, GameObject* go);
+
+        // A portal stays open only while its caster is online. Logout drops the
+        // record; the portal sees that on its own map and closes (IsHomePortalOpen).
+        void CloseHomePortal(Player* player);
+        bool IsHomePortalOpen(ObjectGuid goGuid) const;
+
+        // Teach the spell to a character of an account that owns a house. On
+        // login for every character, and at the claim for the one claiming.
+        void TeachHomePortal(Player* player);
+
+        // From DungeonMap::Remove. A return point is spent when the player
+        // leaves the house by any route other than the way out (a hearthstone,
+        // a GM teleport, a death), so a later .house go does not lead back to
+        // an old dungeon. A logout keeps it: GetLoginExit reads it.
+        void ForgetReturn(Player* player);
+
         // Keeps one exit portal standing in a house. Called from the instance
         // script's update, alongside UpdateHandles.
         void UpdateExitPortal(Map* map);
@@ -1904,6 +1964,25 @@ class HouseMgr
         // never drift on the forced instance or the teleport flag.
         bool   EnterHouseAsVisitor(Player* player, House& house, std::string& error);
 
+        // A guest who came in by this house's Portal Home and is still in a
+        // party with the owner. The portal names the house, so the owner need
+        // not lead: the leader rule is the door's tie-breaker, and a portal has
+        // nothing to break a tie between.
+        bool   IsPortalGuest(Player* guest, House const& house) const;
+
+        // The first rung of SendPlayerToPortal, for a Portal Home trip. False
+        // with `error` empty means the return point is gone and the door ladder
+        // takes over; false with `error` set means the way back is refused for
+        // now and the player stays inside.
+        bool   SendPlayerBack(Player* player, HouseReturn const& back, std::string& error);
+
+        // m_returns and tw_char.character_house_return (sql/custom/209) change
+        // together through these two, so a restart keeps the way back. Direct
+        // writes: a save and a drop for one guid must land in order.
+        void   SaveReturn(uint32 guid, HouseReturn const& back);
+        void   DropReturn(uint32 guid);
+        void   LoadReturns();
+
         // A party member at a LOCKED door: record the knock and ask the owner.
         // Always returns false, since nobody travelled. `error` is empty when
         // the knock went out, because the knock prints its own line.
@@ -2035,6 +2114,13 @@ class HouseMgr
         // visit, and a restart while somebody is indoors simply falls back to
         // their home portal, which is a good answer rather than a wrong one.
         std::map<uint32, uint32> m_enteredBy;            // player guid -> portal id
+
+        // The other way in: a Portal Home trip, and the spot it started from.
+        // A player has an entry in one of these two maps, never both; each
+        // writer erases the other. Memory only, for the same reason as above.
+        std::map<uint32, HouseReturn> m_returns;         // player guid -> where to go back to
+        std::map<uint32, HouseHomePortal> m_homePortals; // account -> its open portal
+        std::set<uint32> m_staffVisits;                  // guids in by `.house visit` with no party; the eviction skips them
         std::map<uint32, HouseArrival> m_arrivals;       // player guid -> armed ping
 
         // Which party leader the door gear NAMED to this player, so a click
