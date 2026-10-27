@@ -756,18 +756,19 @@ struct HouseCritter
 // furniture is changed in the template and re-stamped.
 inline bool IsHouseFabric(HouseObject const& o) { return o.source == HOUSE_SOURCE_TEMPLATE; }
 
-// The pages of the exit gear's Upgrades menu. MAIN lists the others and the
-// upgrades with no page of their own. HouseUpgrades.cpp sorts each crate.
+// The pages of the exit gear's Upgrades menu. MAIN lists the others. TOOLS
+// takes every upgrade no other page claims. HouseUpgrades.cpp sorts each crate.
 enum HouseUpgradePage
 {
     HOUSE_UPGRADE_PAGE_MAIN          = 0,
-    HOUSE_UPGRADE_PAGE_MAILBOXES     = 1,
-    HOUSE_UPGRADE_PAGE_FORTUNES      = 2,
-    HOUSE_UPGRADE_PAGE_ELIXIRS       = 3,
-    HOUSE_UPGRADE_PAGE_SPELL_ELIXIRS = 4,
-    HOUSE_UPGRADE_PAGE_UTILITY       = 5,
-    HOUSE_UPGRADE_PAGE_POTIONS       = 6,
-    HOUSE_UPGRADE_PAGE_FLASKS        = 7,
+    HOUSE_UPGRADE_PAGE_TOOLS         = 1,
+    HOUSE_UPGRADE_PAGE_MAILBOXES     = 2,
+    HOUSE_UPGRADE_PAGE_FORTUNES      = 3,
+    HOUSE_UPGRADE_PAGE_ELIXIRS       = 4,
+    HOUSE_UPGRADE_PAGE_SPELL_ELIXIRS = 5,
+    HOUSE_UPGRADE_PAGE_UTILITY       = 6,
+    HOUSE_UPGRADE_PAGE_POTIONS       = 7,
+    HOUSE_UPGRADE_PAGE_FLASKS        = 8,
     HOUSE_UPGRADE_PAGE_COUNT
 };
 

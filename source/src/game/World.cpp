@@ -86,6 +86,7 @@
 #include "GuardMgr.h"
 #include "DailyQuestHandler.h"
 #include "GuidObjectScaling.h"
+#include "CreatureSpawnFaction.h"
 #include "Database/AutoUpdater.hpp"
 #include "CompanionManager.hpp"
 #include "MountManager.hpp"
@@ -2272,6 +2273,8 @@ void LoadPlayerEggLoot();
     sGameEventMgr.LoadFromDB();
     sLog.outString("Loading scaling...");
     sGuidObjectScaling.LoadFromDB();
+    sLog.outString("Loading saved creature spawn factions...");
+    sCreatureSpawnFaction.LoadFromDB();
     sLog.outString("Loading conditions...");
     sObjectMgr.LoadConditions();
     sLog.outString("Loading creature respawn timers...");

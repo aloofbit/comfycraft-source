@@ -13,6 +13,7 @@ EndScriptData */
 #include "ScriptedEscortAI.h"
 #include "Chat.h"
 #include "PointMovementGenerator.h"
+#include "CreatureSpawnFaction.h"
 
 const float DEFAULT_MAX_PLAYER_DISTANCE = 100.0f;
 const float DEFAULT_MAX_ASSIST_DISTANCE =  40.0f;
@@ -187,8 +188,9 @@ void npc_escortAI::JustRespawned()
     //add a small delay before going to first waypoint.
     m_uiWPWaitTimer = m_uiDelayBeforeTheFirstWaypoint;
 
-    if (m_creature->GetFactionTemplateId() != m_creature->GetCreatureInfo()->faction)
-        m_creature->SetFactionTemplateId(m_creature->GetCreatureInfo()->faction);
+    uint32 const faction = sCreatureSpawnFaction.GetFaction(m_creature);
+    if (m_creature->GetFactionTemplateId() != faction)
+        m_creature->SetFactionTemplateId(faction);
 
     Reset();
     ResetCreature();

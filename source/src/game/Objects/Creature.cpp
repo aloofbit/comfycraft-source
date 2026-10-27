@@ -62,6 +62,7 @@
 #include "ScriptedEscortAI.h"
 #include "GuardMgr.h"
 #include "GuidObjectScaling.h"
+#include "CreatureSpawnFaction.h"
 #include "PerfStats.h"
 #include "Autoscaling/AutoScaler.hpp"
 #include "Housing/HouseMgr.h"
@@ -601,7 +602,7 @@ bool Creature::UpdateEntry(uint32 Entry, CreatureData const* data /*=nullptr*/, 
 
     SelectLevel(GetCreatureInfo(), preserveHPAndPower ? GetHealthPercent() : 100.0f, preserveHPAndPower ? GetPowerPercent(POWER_MANA) : 100.0f);
 
-    SetFactionTemplateId(GetCreatureInfo()->faction);
+    SetFactionTemplateId(sCreatureSpawnFaction.GetFaction(this));
     SetDefaultGossipMenuId(GetCreatureInfo()->gossip_menu_id);
     SetUInt32Value(UNIT_NPC_FLAGS, GetCreatureInfo()->npc_flags);
 
@@ -2139,6 +2140,7 @@ void Creature::DeleteFromDB(uint32 lowguid, CreatureData const* data)
     sMapPersistentStateMgr.DoForAllStatesWithMapId(data->position.mapId, instanceId, worker);
 
     sObjectMgr.DeleteCreatureData(lowguid);
+    sCreatureSpawnFaction.Forget(lowguid);
 
     WorldDatabase.BeginTransaction();
     sWorld.ExecuteUpdate("DELETE FROM creature WHERE guid=%u", lowguid);
@@ -2147,6 +2149,7 @@ void Creature::DeleteFromDB(uint32 lowguid, CreatureData const* data)
     sWorld.ExecuteUpdate("DELETE FROM game_event_creature WHERE guid=%u", lowguid);
     sWorld.ExecuteUpdate("DELETE FROM game_event_creature_data WHERE guid=%u", lowguid);
     sWorld.ExecuteUpdate("DELETE FROM creature_battleground WHERE guid=%u", lowguid);
+    sWorld.ExecuteUpdate("DELETE FROM creature_spawn_faction WHERE guid=%u", lowguid);
     WorldDatabase.CommitTransaction();
 }
 
@@ -3429,7 +3432,7 @@ void Creature::ClearTemporaryFaction()
         return;
 
     m_temporaryFactionFlags = TEMPFACTION_NONE;
-    SetFactionTemplateId(GetCreatureInfo()->faction);
+    SetFactionTemplateId(sCreatureSpawnFaction.GetFaction(this));
 }
 
 void Creature::SendAreaSpiritHealerQueryOpcode(Player *pl)

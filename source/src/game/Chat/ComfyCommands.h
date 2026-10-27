@@ -25,6 +25,11 @@ struct ComfyCommands
     static bool HandleCompactCommand(ChatHandler* handler, char* args);
     static bool HandleGuildHouseCommand(ChatHandler* handler, char* args);
     static bool HandleModifyNpcFlagCommand(ChatHandler* handler, char* args);
+
+    // CreatureSpawnFaction.cpp
+    static bool HandleNpcSaveFactionCommand(ChatHandler* handler, char* args);
+
+    // Commands/Commands.cpp
     static bool HandleSetLevelCommand(ChatHandler* handler, char* args);
     static bool HandleGearCommand(ChatHandler* handler, char* args);
     static bool HandleHireCommand(ChatHandler* handler, char* args);

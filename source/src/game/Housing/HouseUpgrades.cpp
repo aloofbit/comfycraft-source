@@ -449,7 +449,9 @@ uint32 HouseMgr::UpgradePage(uint32 itemEntry) const
         return HOUSE_UPGRADE_PAGE_MAILBOXES;
     if (HouseBuff const* b = FindBuff(goEntry))
         return b->page;
-    return HOUSE_UPGRADE_PAGE_MAIN;
+    // Everything else is a tool: the repair table, Refreshments, the shops,
+    // the crafting stations. A new upgrade lands here with no change.
+    return HOUSE_UPGRADE_PAGE_TOOLS;
 }
 
 bool HouseMgr::BuyUpgrade(Player* player, uint32 itemEntry, std::string& error)

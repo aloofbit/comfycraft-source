@@ -2189,7 +2189,7 @@ namespace
     // The page names, indexed by HouseUpgradePage. The main page has none.
     char const* const UPGRADE_PAGE_NAMES[HOUSE_UPGRADE_PAGE_COUNT] =
     {
-        "", "Mailboxes", "Fortunes", "Elixirs", "Spell Elixirs", "Utility Elixirs", "Potions", "Flasks",
+        "", "Tools", "Mailboxes", "Fortunes", "Elixirs", "Spell Elixirs", "Utility Elixirs", "Potions", "Flasks",
     };
 
     // THE CLIENT MISREADS A MENU OVER ABOUT 490 BYTES: each row costs its
@@ -2276,8 +2276,6 @@ namespace
         GossipMenu& menu = player->PlayerTalkClass->GetGossipMenu();
         player->PlayerTalkClass->ClearMenus();
 
-        bool const staff = player->GetSession()->GetSecurity() >= SEC_DEVELOPER;
-
         for (uint32 i = 0; i < HOUSE_SETTING_MAX; ++i)
         {
             HouseSetting const s = HouseSetting(i);
@@ -2288,14 +2286,11 @@ namespace
             if (!HouseMgr::IsSettingLive(s))
                 continue;
 
-            // A SERVER-WIDE SETTING IS NOT DRAWN FOR SOMEBODY WHO CANNOT
-            // CHANGE IT. The rule this house already follows for a guest at
-            // the gear: a row that can only answer "no" reads worse than no
-            // row. `.house settings` still LISTS it, marked server-wide,
-            // because knowing how placement behaves is worth having even when
-            // changing it is not yours to do -- a list describes, a menu
-            // offers, and those are different promises.
-            if (HouseMgr::SettingIsGlobal(s) && !staff)
+            // A SERVER-WIDE SETTING IS NEVER DRAWN, not even for staff. It is a
+            // server knob, not a house preference, and a click here toggles
+            // on/off: on the arrival ping that wrote 0 or 1 ms. It is set
+            // with `.house settings <name> <n>`, which also lists it.
+            if (HouseMgr::SettingIsGlobal(s))
                 continue;
 
             // The lock has its own row on the main page, and one control in
@@ -2323,10 +2318,9 @@ namespace
         return ACT_CTL_PAGE_0 + page * 100 + first;
     }
 
-    // THE UPGRADES PAGES. Page 0 lists the other pages, then the upgrades that
-    // have no page of their own (the repair table, Refreshments, the Junk
-    // Compactor). Every other page lists its crates with their prices. The
-    // price is the item's buy price, the same number Furnisher Adela asks.
+    // THE UPGRADES PAGES. Page 0 lists the other pages. Every other page lists
+    // its crates with their prices. The price is the item's buy price, the
+    // same number Furnisher Adela asks.
     void SendControlUpgrades(Player* player, GameObject* go, House const& /*house*/,
                              uint32 page = HOUSE_UPGRADE_PAGE_MAIN, uint32 first = 0)
     {
@@ -2336,8 +2330,14 @@ namespace
         std::vector<uint32> upgrades;
         sHouseMgr.UpgradeItems(upgrades);
 
-        // Back and a possible More are reserved before any row is counted.
-        uint32 used = (4 + 7) + (4 + 7);
+        // Back and the blank row under it go first, so Back is in the same
+        // place on every page. They and a possible More are reserved before
+        // any row is counted.
+        uint32 used = (4 + 7) + (1 + 7) + (4 + 7);
+
+        menu.AddMenuItem(HOUSE_GOSSIP_ICON, "Back", HOUSE_CONTROL_SENDER,
+                         page == HOUSE_UPGRADE_PAGE_MAIN ? uint32(ACT_CTL_BACK) : uint32(ACT_CTL_UPGRADES));
+        menu.AddMenuItem(HOUSE_GOSSIP_ICON, " ", HOUSE_CONTROL_SENDER, PageAction(page, first));
 
         if (page == HOUSE_UPGRADE_PAGE_MAIN)
             for (uint32 p = 1; p < HOUSE_UPGRADE_PAGE_COUNT; ++p)
@@ -2377,8 +2377,6 @@ namespace
         if (more)
             menu.AddMenuItem(HOUSE_GOSSIP_ICON, "More", HOUSE_CONTROL_SENDER, PageAction(page, more));
 
-        menu.AddMenuItem(HOUSE_GOSSIP_ICON, "Back", HOUSE_CONTROL_SENDER,
-                         page == HOUSE_UPGRADE_PAGE_MAIN ? uint32(ACT_CTL_BACK) : uint32(ACT_CTL_UPGRADES));
         player->PlayerTalkClass->SendGossipMenu(HOUSE_CONTROL_UPGRADES_TEXT, go->GetObjectGuid());
     }
 
@@ -2604,7 +2602,7 @@ static bool GossipSelect_go_house_control(Player* player, GameObject* go, uint32
                 // litter rather than a crash, and still a row nothing will
                 // ever read or clean up. Every other loop over the enum skips
                 // the holes; so does this one now.
-                if (!HouseMgr::IsSettingLive(s))
+                if (!HouseMgr::IsSettingLive(s) || HouseMgr::SettingIsGlobal(s))
                 {
                     player->PlayerTalkClass->CloseGossip();
                     return true;

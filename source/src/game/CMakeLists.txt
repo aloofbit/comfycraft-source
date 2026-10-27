@@ -61,6 +61,7 @@ set (game_SRCS
     TransmogMgr.cpp
     UnitAuraProcHandler.cpp
     Weather.cpp
+    CreatureSpawnFaction.cpp
     World.cpp
     WorldSession.cpp
     AI/AbilityTimer.cpp
@@ -254,6 +255,7 @@ set (game_SRCS
     CreatureGroups.h
     CustomMerchantMgr.h
     Formulas.h
+    CreatureSpawnFaction.h
     GuidObjectScaling.h
     GameEventMgr.h
     Geometry.h

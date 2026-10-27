@@ -15548,6 +15548,7 @@ namespace
         { "effect",            ".effect <visual kit> [name]   play a spell visual" },
         { "emote",             ".emote <id> [name]   play an emote" },
         { "modify npcflag",    ".modify npcflag [value]   read or set a unit's NPC flags" },
+        { "npc savefaction",   ".npc savefaction [faction | off]   keep a faction for the selected spawn only; 35 makes it unattackable" },
         { "ticket respond",    ".ticket respond <id> <text>   answer a GM ticket (\\n is a new line)" },
         { "send letter",       ".send letter <name> <copper> <item[:count]|-> <subject>|<text>   a GM letter (console)" },
         { "reload bot_npc",    "reload bot_npc | broadcast_text | custom_merchant | dialog_scenes | "

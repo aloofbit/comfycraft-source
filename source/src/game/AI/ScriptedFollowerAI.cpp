@@ -11,6 +11,7 @@ EndScriptData */
 
 #include "ScriptedFollowerAI.h"
 #include "Chat.h"
+#include "CreatureSpawnFaction.h"
 
 const float MAX_PLAYER_DISTANCE = 100.0f;
 
@@ -151,8 +152,9 @@ void FollowerAI::JustRespawned()
     if (!IsCombatMovementEnabled())
         SetCombatMovement(true);
 
-    if (m_creature->GetFactionTemplateId() != m_creature->GetCreatureInfo()->faction)
-        m_creature->SetFactionTemplateId(m_creature->GetCreatureInfo()->faction);
+    uint32 const faction = sCreatureSpawnFaction.GetFaction(m_creature);
+    if (m_creature->GetFactionTemplateId() != faction)
+        m_creature->SetFactionTemplateId(faction);
 
     Reset();
 }
