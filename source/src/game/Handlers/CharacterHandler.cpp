@@ -53,6 +53,7 @@
 #include "Logging/DatabaseLogger.hpp"
 #include "ComfyTitles.h"
 #include "Housing/HouseMgr.h"
+#include "ArrivalFloor.h"
 
 // config option SkipCinematics supported values
 enum CinematicsSkipMode
@@ -1157,6 +1158,12 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
     {
         script->OnLogin(pCurrChar);
     });
+
+    // Start the floor hold now, so its packets are already queued when the
+    // loading screen ends. CMSG_SET_ACTIVE_MOVER arms it again from there. A
+    // bot's session has no socket.
+    if (GetSocket())
+        ArrivalFloor::Arm(pCurrChar);
 }
 
 void WorldSession::HandleSetFactionAtWarOpcode(WorldPacket & recv_data)

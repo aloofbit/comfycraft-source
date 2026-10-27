@@ -41,6 +41,7 @@
 #include "MapPersistentStateMgr.h"
 #include "Housing/HouseMgr.h"
 #include "DungeonRun.h"
+#include "ArrivalFloor.h"
 #include "VMapFactory.h"
 #include "BattleGroundMgr.h"
 #include "DynamicTree.h"
@@ -986,6 +987,10 @@ void Map::Update(uint32 t_diff)
 
     // What bot NPCs do when nobody has told them to do anything.
     UpdateBotNpcIdle(t_diff);
+
+    // Players and creatures that dropped through a gameobject floor while the
+    // client loaded. Empty on nearly every tick.
+    ArrivalFloor::Update(this, t_diff);
 
     // Give back the flags of anything whose busy time is up. Empty on nearly
     // every map, so this is a size check and nothing else.

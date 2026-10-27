@@ -39,6 +39,7 @@
 #include "Anticheat/Movement/Movement.hpp"
 #include "SuspiciousStatisticMgr.h"
 #include "ScriptObjects.h"
+#include "ArrivalFloor.h"
 
 // Bot diagnostic logging — flag-gated via AiPlayerbot.EnableActionLog. We
 // can't #include "BotDiagnostics.h" here because the playerbot/ dir isn't
@@ -282,6 +283,9 @@ void WorldSession::HandleMoveWorldportAckOpcode()
     {
         script->OnMapChanged(GetPlayer());
     });
+
+    if (!_scIsBotSession(this))
+        ArrivalFloor::Arm(GetPlayer());
 }
 
 void WorldSession::HandleMoveTeleportAckOpcode(WorldPacket& recvData)
@@ -353,6 +357,9 @@ void Player::ExecuteTeleportNear()
 
     // lets process all delayed operations on successful teleport
     ProcessDelayedOperations();
+
+    if (!_scIsBotSession(GetSession()))
+        ArrivalFloor::Arm(this);
 }
 
 void WorldSession::HandleMovementOpcodes(WorldPacket& recvData)
@@ -938,6 +945,10 @@ void WorldSession::HandleSetActiveMoverOpcode(WorldPacket& recvData)
                     _player->RemovePet(PET_SAVE_REAGENTS);
             }
         }
+
+        // The client sends this when it leaves a loading screen, a login too.
+        if (guid == _player->GetObjectGuid() && !_scIsBotSession(this))
+            ArrivalFloor::Arm(_player);
     }
 
     m_clientMoverGuid = guid;
