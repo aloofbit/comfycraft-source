@@ -80,6 +80,22 @@ namespace
 // A category with nothing in it cannot happen -- the list is built FROM the
 // items at load, so a name only exists because something carries it. That is
 // worth knowing because it is why there is no empty-page guard here.
+// Does this shop sell anything filed under the category? Its own npc_vendor
+// rows and its shared template both count, as SendListInventory serves both.
+static bool ShopSellsFrom(Creature* shop, std::string const& category)
+{
+    std::set<uint32> page;
+    sHouseMgr.FurnitureItemsIn(category, page);
+
+    VendorItemData const* lists[] = { shop->GetVendorItems(), shop->GetVendorTemplateItems() };
+    for (VendorItemData const* list : lists)
+        if (list)
+            for (uint32 entry : page)
+                if (list->FindItem(entry))
+                    return true;
+    return false;
+}
+
 static void SendShopMenu(Player* player, Creature* shop)
 {
     std::vector<std::string> const& cats = sHouseMgr.FurnitureCategories();
@@ -87,19 +103,29 @@ static void SendShopMenu(Player* player, Creature* shop)
     player->PlayerTalkClass->ClearMenus();
     GossipMenu& menu = player->PlayerTalkClass->GetGossipMenu();
 
+    // ONLY THE TABS THIS SHOP FILLS. The categories are every furniture
+    // item's, and a second shop (the house potion seller, sql/custom/210)
+    // sells a different part of them; a tab it has nothing under would open
+    // an empty window. The action is still the index into the full list.
+    uint32 shown = 0;
     for (uint32 i = 0; i < cats.size(); ++i)
+    {
+        if (!ShopSellsFrom(shop, cats[i]))
+            continue;
         menu.AddMenuItem(GOSSIP_ICON_VENDOR, cats[i].c_str(), SHOP_SENDER,
                          ACT_CATEGORY_BASE + i);
+        ++shown;
+    }
 
     // Only worth offering when it would show something the pages do not: with
     // one category, "All" IS that category under a vaguer name.
-    if (cats.size() > 1)
+    if (shown > 1)
         menu.AddMenuItem(GOSSIP_ICON_VENDOR, "All", SHOP_SENDER, ACT_EVERYTHING);
 
     // No categories at all means an unmigrated database -- sql/custom/062 not
     // applied, so every row's category is blank. Degrade to the plain vendor
     // window rather than to an empty menu, which would read as a broken NPC.
-    if (cats.empty())
+    if (!shown)
     {
         player->GetSession()->SendListInventory(shop->GetObjectGuid());
         return;

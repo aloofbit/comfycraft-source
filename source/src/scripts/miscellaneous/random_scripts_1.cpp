@@ -856,9 +856,12 @@ uint32 GetTabAmount(Player* player)
     return tabs;
 }
 
-bool GOHello_go_brainwashing_device(Player* pPlayer, GameObject* pGo)
+// The device's menu. `needsDevice` is the stock rule: the player must know the
+// toy's spell (46002). The house's own device (go_house_brainwash below) is
+// furniture its owner bought, so it asks for level 10 only.
+static bool SendBrainwashMenu(Player* pPlayer, GameObject* pGo, bool needsDevice)
 {
-	if (pPlayer->GetLevel() >= 10 && pPlayer->HasSpell(46002))
+	if (pPlayer->GetLevel() >= 10 && (!needsDevice || pPlayer->HasSpell(46002)))
 	{
 
         if (pPlayer->IsInCombat())
@@ -929,6 +932,24 @@ bool GOHello_go_brainwashing_device(Player* pPlayer, GameObject* pGo)
     pPlayer->SEND_GOSSIP_MENU(90350, pGo->GetGUID());
 
     return true;
+}
+
+bool GOHello_go_brainwashing_device(Player* pPlayer, GameObject* pGo)
+{
+    return SendBrainwashMenu(pPlayer, pGo, true);
+}
+
+// THE HOUSE'S BRAINWASHING DEVICE (gameobject 100034, sql/custom/210): the same
+// menu and the same choices as the toy, kept for good as furniture. In the
+// owner's edit session the click goes to the edit menu instead: returning
+// false here lets HouseGameObjectUse run.
+extern bool HouseObjectInEditSession(Player* player, uint32 goGuidLow);
+
+bool GOHello_go_house_brainwash(Player* pPlayer, GameObject* pGo)
+{
+    if (HouseObjectInEditSession(pPlayer, pGo->GetGUIDLow()))
+        return false;
+    return SendBrainwashMenu(pPlayer, pGo, false);
 }
 
 
@@ -7158,6 +7179,12 @@ void AddSC_random_scripts_1()
     newscript = new Script;
     newscript->Name = "go_brainwashing_device";
     newscript->pGOHello = &GOHello_go_brainwashing_device;
+    newscript->pGOGossipSelect = &GOSelect_go_brainwashing_device;
+    newscript->RegisterSelf();
+
+    newscript = new Script;
+    newscript->Name = "go_house_brainwash";
+    newscript->pGOHello = &GOHello_go_house_brainwash;
     newscript->pGOGossipSelect = &GOSelect_go_brainwashing_device;
     newscript->RegisterSelf();
 

@@ -118,6 +118,7 @@ set (game_SRCS
     Housing/HouseMgr.cpp
     Housing/HousePortal.cpp
     Housing/HouseVendor.cpp
+    Housing/HouseUpgrades.cpp
     Handlers/AddonHandler.cpp
     Handlers/AuctionHouseHandler.cpp
     Handlers/BattleGroundHandler.cpp

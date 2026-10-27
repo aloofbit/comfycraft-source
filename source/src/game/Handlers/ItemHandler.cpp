@@ -27,6 +27,7 @@
 #include "ObjectMgr.h"
 #include "Player.h"
 #include "BotNpc.h"
+#include "Housing/HouseMgr.h"
 #include "Item.h"
 #include "UpdateData.h"
 #include "Chat.h"
@@ -593,6 +594,13 @@ void WorldSession::HandleSellItemOpcode(WorldPacket & recv_data)
         {
             DEBUG_LOG("WORLD: HandleSellItemOpcode - %s not found or you can't interact with him.", vendorGuid.GetString().c_str());
             _player->SendSellError(SELL_ERR_CANT_FIND_VENDOR, nullptr, itemGuid, 0);
+            return;
+        }
+
+        // A house shop only sells; the Junk Compactor is where things are sold.
+        if (HouseShopRefusesSales(pCreature))
+        {
+            _player->SendSellError(SELL_ERR_CANT_SELL_ITEM, pCreature, itemGuid, 0);
             return;
         }
     }

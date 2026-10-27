@@ -147,7 +147,7 @@ namespace
     // and the two 90-degree buttons on the turn page mean its list never needs
     // a coarse entry.
     float const STEPS_MOVE[] = { 0.1f, 0.25f, 0.5f, 1.0f, 2.0f, 5.0f };
-    float const STEPS_TURN[] = { 5.0f, 15.0f, 45.0f };
+    float const STEPS_TURN[] = { 1.0f, 3.0f, 5.0f, 15.0f, 45.0f };
     float const STEPS_SIZE[] = { 5.0f, 10.0f, 50.0f, 100.0f };
 
     struct StepKindInfo

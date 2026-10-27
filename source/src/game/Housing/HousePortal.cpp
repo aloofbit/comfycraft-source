@@ -65,6 +65,7 @@
 #include "WorldSession.h"
 
 #include <cctype>
+#include <cstring>
 #include <sstream>
 #include <string>
 
@@ -2148,7 +2149,15 @@ namespace
     uint32 const HOUSE_CONTROL_TEXT          = 6400033;
     uint32 const HOUSE_CONTROL_CONFIRM_TEXT  = 6400034;
     uint32 const HOUSE_CONTROL_SETTINGS_TEXT = 6400038;
+    uint32 const HOUSE_CONTROL_UPGRADES_TEXT = 6400042;     // sql/custom/210
     uint32 const HOUSE_CONTROL_SENDER        = 6403;
+
+    // THE UPGRADES PAGE CARRIES THE ITEM ENTRY AS THE ACTION, under two
+    // senders of its own: one asks, one buys. An index into the list would
+    // name a different crate after `.house furniture reload`; an entry is
+    // checked against the list again by BuyUpgrade.
+    uint32 const HOUSE_UPGRADE_ASK_SENDER    = 6404;
+    uint32 const HOUSE_UPGRADE_BUY_SENDER    = 6405;
 
     enum ControlAction
     {
@@ -2164,13 +2173,29 @@ namespace
         ACT_CTL_BACK      = 10,  // -> main page
         ACT_CTL_LEAVE     = 11,  // out through the exit, without walking into it
         ACT_CTL_LOCK      = 12,  // the front door, locked or open
+        ACT_CTL_UPGRADES  = 13,  // -> upgrades page
 
         // One action per setting, and they are numbered FROM a base rather than
         // listed, so adding a setting to the HouseSetting enum puts a row on
         // this page with no change here at all. The block is the last thing in
         // this enum for that reason.
         ACT_CTL_SETTING_0 = 20,
+
+        // An upgrade page: ACT_CTL_PAGE_0 + page * 100 + the first row shown.
+        // See HouseUpgradePage; the first row is how "More" carries on.
+        ACT_CTL_PAGE_0    = 1000,
     };
+
+    // The page names, indexed by HouseUpgradePage. The main page has none.
+    char const* const UPGRADE_PAGE_NAMES[HOUSE_UPGRADE_PAGE_COUNT] =
+    {
+        "", "Mailboxes", "Fortunes", "Elixirs", "Spell Elixirs", "Utility Elixirs", "Potions", "Flasks",
+    };
+
+    // THE CLIENT MISREADS A MENU OVER ABOUT 490 BYTES: each row costs its
+    // label plus 7 (docs/ai/content/vendors-and-gossip.md). A page stops at
+    // this and offers "More", so a long page can never break.
+    uint32 const MENU_BUDGET = 440;
 
     void SendControlMain(Player* player, GameObject* go)
     {
@@ -2224,6 +2249,7 @@ namespace
 
         menu.AddMenuItem(HOUSE_GOSSIP_ICON, "Furniture Storage",    HOUSE_CONTROL_SENDER, ACT_CTL_STORAGE);
         menu.AddMenuItem(HOUSE_GOSSIP_ICON, "Bank",                 HOUSE_CONTROL_SENDER, ACT_CTL_BANK);
+        menu.AddMenuItem(HOUSE_GOSSIP_ICON, "Upgrades",             HOUSE_CONTROL_SENDER, ACT_CTL_UPGRADES);
         menu.AddMenuItem(HOUSE_GOSSIP_ICON, " ",                    HOUSE_CONTROL_SENDER, ACT_CTL_BACK);
 
         // Paired with the row below it: the two things you do to the room's
@@ -2292,6 +2318,89 @@ namespace
         player->PlayerTalkClass->SendGossipMenu(HOUSE_CONTROL_SETTINGS_TEXT, go->GetObjectGuid());
     }
 
+    uint32 PageAction(uint32 page, uint32 first = 0)
+    {
+        return ACT_CTL_PAGE_0 + page * 100 + first;
+    }
+
+    // THE UPGRADES PAGES. Page 0 lists the other pages, then the upgrades that
+    // have no page of their own (the repair table, Refreshments, the Junk
+    // Compactor). Every other page lists its crates with their prices. The
+    // price is the item's buy price, the same number Furnisher Adela asks.
+    void SendControlUpgrades(Player* player, GameObject* go, House const& /*house*/,
+                             uint32 page = HOUSE_UPGRADE_PAGE_MAIN, uint32 first = 0)
+    {
+        GossipMenu& menu = player->PlayerTalkClass->GetGossipMenu();
+        player->PlayerTalkClass->ClearMenus();
+
+        std::vector<uint32> upgrades;
+        sHouseMgr.UpgradeItems(upgrades);
+
+        // Back and a possible More are reserved before any row is counted.
+        uint32 used = (4 + 7) + (4 + 7);
+
+        if (page == HOUSE_UPGRADE_PAGE_MAIN)
+            for (uint32 p = 1; p < HOUSE_UPGRADE_PAGE_COUNT; ++p)
+                for (uint32 itemEntry : upgrades)
+                    if (sHouseMgr.UpgradePage(itemEntry) == p)
+                    {
+                        menu.AddMenuItem(HOUSE_GOSSIP_ICON, UPGRADE_PAGE_NAMES[p], HOUSE_CONTROL_SENDER, PageAction(p));
+                        used += uint32(strlen(UPGRADE_PAGE_NAMES[p])) + 7;
+                        break;
+                    }
+
+        uint32 index = 0;
+        uint32 more = 0;
+        for (uint32 itemEntry : upgrades)
+        {
+            if (sHouseMgr.UpgradePage(itemEntry) != page)
+                continue;
+            if (index++ < first)
+                continue;
+
+            ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemEntry);
+            if (!proto)
+                continue;
+
+            std::string const label = proto->Name1 + ": " + HouseMgr::MoneyText(proto->BuyPrice);
+
+            if (used + label.size() + 7 > MENU_BUDGET)
+            {
+                more = index - 1;
+                break;
+            }
+            used += uint32(label.size()) + 7;
+
+            menu.AddMenuItem(HOUSE_GOSSIP_ICON, label.c_str(), HOUSE_UPGRADE_ASK_SENDER, itemEntry);
+        }
+
+        if (more)
+            menu.AddMenuItem(HOUSE_GOSSIP_ICON, "More", HOUSE_CONTROL_SENDER, PageAction(page, more));
+
+        menu.AddMenuItem(HOUSE_GOSSIP_ICON, "Back", HOUSE_CONTROL_SENDER,
+                         page == HOUSE_UPGRADE_PAGE_MAIN ? uint32(ACT_CTL_BACK) : uint32(ACT_CTL_UPGRADES));
+        player->PlayerTalkClass->SendGossipMenu(HOUSE_CONTROL_UPGRADES_TEXT, go->GetObjectGuid());
+    }
+
+    void SendUpgradeConfirm(Player* player, GameObject* go, uint32 itemEntry)
+    {
+        ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemEntry);
+        if (!proto)
+        {
+            player->PlayerTalkClass->CloseGossip();
+            return;
+        }
+
+        GossipMenu& menu = player->PlayerTalkClass->GetGossipMenu();
+        player->PlayerTalkClass->ClearMenus();
+
+        std::string const yes = "Yes, buy the " + proto->Name1 + " for " + HouseMgr::MoneyText(proto->BuyPrice);
+        menu.AddMenuItem(HOUSE_GOSSIP_ICON, yes.c_str(), HOUSE_UPGRADE_BUY_SENDER, itemEntry);
+        menu.AddMenuItem(HOUSE_GOSSIP_ICON, "No", HOUSE_CONTROL_SENDER, PageAction(sHouseMgr.UpgradePage(itemEntry)));
+
+        player->PlayerTalkClass->SendGossipMenu(HOUSE_PORTAL_CONFIRM_TEXT, go->GetObjectGuid());
+    }
+
     // A confirm is a SECOND MENU here, always: this build's SMSG_GOSSIP_MESSAGE
     // writes index, icon, coded and text per option and nothing else, so
     // AddMenuItem's BoxMessage is never transmitted and there are no popups.
@@ -2331,7 +2440,9 @@ static bool GossipHello_go_house_control(Player* player, GameObject* go)
 
 static bool GossipSelect_go_house_control(Player* player, GameObject* go, uint32 sender, uint32 action)
 {
-    if (sender != HOUSE_CONTROL_SENDER)
+    if (sender != HOUSE_CONTROL_SENDER &&
+        sender != HOUSE_UPGRADE_ASK_SENDER &&
+        sender != HOUSE_UPGRADE_BUY_SENDER)
         return false;
 
     // RE-RESOLVED ON EVERY CLICK, not trusted from the menu that drew it. A
@@ -2345,6 +2456,27 @@ static bool GossipSelect_go_house_control(Player* player, GameObject* go, uint32
     }
 
     std::string error;
+
+    if (sender == HOUSE_UPGRADE_ASK_SENDER)
+    {
+        SendUpgradeConfirm(player, go, action);
+        return true;
+    }
+
+    // Back to the page after a purchase, so the row now reads its price
+    // again and the next one is a click away.
+    if (sender == HOUSE_UPGRADE_BUY_SENDER)
+    {
+        if (sHouseMgr.BuyUpgrade(player, action, error))
+        {
+            if (ItemPrototype const* proto = sObjectMgr.GetItemPrototype(action))
+                ChatHandler(player).PSendSysMessage("Bought %s. It is in your bags.", proto->Name1.c_str());
+        }
+        else
+            ChatHandler(player).SendSysMessage(error.c_str());
+        SendControlUpgrades(player, go, *house, sHouseMgr.UpgradePage(action));
+        return true;
+    }
 
     switch (action)
     {
@@ -2391,6 +2523,10 @@ static bool GossipSelect_go_house_control(Player* player, GameObject* go, uint32
 
         case ACT_CTL_SETTINGS:
             SendControlSettings(player, go);
+            return true;
+
+        case ACT_CTL_UPGRADES:
+            SendControlUpgrades(player, go, *house);
             return true;
 
         case ACT_CTL_BACK:
@@ -2450,6 +2586,12 @@ static bool GossipSelect_go_house_control(Player* player, GameObject* go, uint32
         // reason the edit-mode row does: the label it just changed IS the
         // answer, and closing would leave you to reopen the gear to see it.
         default:
+            if (action >= ACT_CTL_PAGE_0 && action < ACT_CTL_PAGE_0 + HOUSE_UPGRADE_PAGE_COUNT * 100)
+            {
+                SendControlUpgrades(player, go, *house, (action - ACT_CTL_PAGE_0) / 100, (action - ACT_CTL_PAGE_0) % 100);
+                return true;
+            }
+
             if (action >= ACT_CTL_SETTING_0 &&
                 action < ACT_CTL_SETTING_0 + HOUSE_SETTING_MAX)
             {

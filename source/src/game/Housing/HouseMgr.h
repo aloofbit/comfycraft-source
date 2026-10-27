@@ -38,6 +38,7 @@ class Map;
 class GameObject;
 class Creature;
 struct GameObjectData;
+struct GameObjectInfo;
 struct WorldLocation;
 
 // map_template.entry 28, made instanceable by sql/custom/029_house_map_28.sql.
@@ -95,6 +96,20 @@ struct WorldLocation;
 // player was already being shown as clickable.
 class Player;
 bool HouseGameObjectUse(Player* player, uint32 goGuidLow);
+
+// `.compact <bag> <slot>`: sell one bag item at the Junk Compactor the player
+// started pick mode at. Defined in HouseUpgrades.cpp.
+void HouseCompactItem(Player* player, uint32 bag, uint32 slot);
+
+// True for the invisible vendor a house shop object summons (HouseUpgrades.cpp).
+// HandleSellItemOpcode refuses every sale to one.
+class Creature;
+bool HouseShopRefusesSales(Creature const* vendor);
+
+// For object scripts in src/scripts, which cannot include this header: is this
+// house object in the player's edit session? A script on a house object
+// answers false from pGOHello when it is, so the edit menu opens.
+bool HouseObjectInEditSession(Player* player, uint32 goGuidLow);
 bool HouseGameObjectGossipSelect(Player* player, uint32 goGuidLow, uint32 sender,
                                  uint32 action, const char* code);
 
@@ -740,6 +755,21 @@ struct HouseCritter
 // own house, so a rank check here would have no legitimate use. Template
 // furniture is changed in the template and re-stamped.
 inline bool IsHouseFabric(HouseObject const& o) { return o.source == HOUSE_SOURCE_TEMPLATE; }
+
+// The pages of the exit gear's Upgrades menu. MAIN lists the others and the
+// upgrades with no page of their own. HouseUpgrades.cpp sorts each crate.
+enum HouseUpgradePage
+{
+    HOUSE_UPGRADE_PAGE_MAIN          = 0,
+    HOUSE_UPGRADE_PAGE_MAILBOXES     = 1,
+    HOUSE_UPGRADE_PAGE_FORTUNES      = 2,
+    HOUSE_UPGRADE_PAGE_ELIXIRS       = 3,
+    HOUSE_UPGRADE_PAGE_SPELL_ELIXIRS = 4,
+    HOUSE_UPGRADE_PAGE_UTILITY       = 5,
+    HOUSE_UPGRADE_PAGE_POTIONS       = 6,
+    HOUSE_UPGRADE_PAGE_FLASKS        = 7,
+    HOUSE_UPGRADE_PAGE_COUNT
+};
 
 // One row of tw_world.house_furniture_item: the model an inventory item turns
 // into, and the size to place it at (0 = whatever the model ships at).
@@ -1408,6 +1438,34 @@ class HouseMgr
         // that runs and then says "your house is full" is a worse answer than
         // an instant one. Ask first, then start the bar.
         bool CanPlaceFurniture(Player* player, std::string& error);
+
+        // ---- upgrades --------------------------------------------------------
+        //
+        // Defined in HouseUpgrades.cpp. AN UPGRADE IS A CRATE WHOSE OBJECT DOES
+        // SOMETHING: a mailbox, the repair table, a fortune. That is the whole
+        // definition, so the core needs no list of them and no category name:
+        // a house_furniture_item row whose gameobject is not a decorative type
+        // is an upgrade, and the shop tab is only where the database files it.
+
+        // Plain models, chairs and buildings. Every other type works when it
+        // is clicked. `.house object add` keeps players to these.
+        static bool IsDecorativeType(GameObjectInfo const* info);
+
+        // The upgrade crates, in item entry order.
+        void UpgradeItems(std::vector<uint32>& out) const;
+
+        // Which exit gear page an upgrade crate is listed on (HouseUpgradePage).
+        uint32 UpgradePage(uint32 itemEntry) const;
+
+        // The gameobject a crate places, or 0 when it is not a crate.
+        uint32 GetFurnitureGoEntry(uint32 itemEntry) const;
+
+        // The exit gear's Buy button. Takes the item's buy price and puts the
+        // crate in the bags, or refuses with nothing taken.
+        bool BuyUpgrade(Player* player, uint32 itemEntry, std::string& error);
+
+        // Copper as a player reads it: "3g 12s", "40s", "7c".
+        static std::string MoneyText(uint32 copper);
 
         // ---- critter crates --------------------------------------------------
         //

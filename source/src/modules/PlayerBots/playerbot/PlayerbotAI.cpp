@@ -3877,8 +3877,8 @@ ChatChannelSource PlayerbotAI::GetChatChannelSource(Player* bot, uint32 type, st
 
 bool PlayerbotAI::SayToGuild(std::string msg, bool likePlayer)
 {
-    // A bot NPC never volunteers chat. MaySpeak() has the reasoning.
-    if (!MaySpeak())
+    // A bot NPC or a silent companion never posts in a channel. MayUseChannels() has the reasoning.
+    if (!MayUseChannels())
         return false;
     if (msg.empty())
     {
@@ -3928,8 +3928,8 @@ bool PlayerbotAI::SayToGuild(std::string msg, bool likePlayer)
 
 bool PlayerbotAI::SayToWorld(std::string msg)
 {
-    // A bot NPC never volunteers chat. MaySpeak() has the reasoning.
-    if (!MaySpeak())
+    // A bot NPC or a silent companion never posts in a channel. MayUseChannels() has the reasoning.
+    if (!MayUseChannels())
         return false;
     if (msg.empty())
     {
@@ -3955,8 +3955,8 @@ bool PlayerbotAI::SayToWorld(std::string msg)
 
 bool PlayerbotAI::SayToGeneral(std::string msg)
 {
-    // A bot NPC never volunteers chat. MaySpeak() has the reasoning.
-    if (!MaySpeak())
+    // A bot NPC or a silent companion never posts in a channel. MayUseChannels() has the reasoning.
+    if (!MayUseChannels())
         return false;
     if (msg.empty())
     {
@@ -3991,8 +3991,8 @@ bool PlayerbotAI::SayToGeneral(std::string msg)
 
 bool PlayerbotAI::SayToTrade(std::string msg)
 {
-    // A bot NPC never volunteers chat. MaySpeak() has the reasoning.
-    if (!MaySpeak())
+    // A bot NPC or a silent companion never posts in a channel. MayUseChannels() has the reasoning.
+    if (!MayUseChannels())
         return false;
     if (msg.empty())
     {
@@ -4035,8 +4035,8 @@ bool PlayerbotAI::SayToTrade(std::string msg)
 
 bool PlayerbotAI::SayToLFG(std::string msg)
 {
-    // A bot NPC never volunteers chat. MaySpeak() has the reasoning.
-    if (!MaySpeak())
+    // A bot NPC or a silent companion never posts in a channel. MayUseChannels() has the reasoning.
+    if (!MayUseChannels())
         return false;
     if (msg.empty())
     {
@@ -4070,8 +4070,8 @@ bool PlayerbotAI::SayToLFG(std::string msg)
 
 bool PlayerbotAI::SayToLocalDefense(std::string msg)
 {
-    // A bot NPC never volunteers chat. MaySpeak() has the reasoning.
-    if (!MaySpeak())
+    // A bot NPC or a silent companion never posts in a channel. MayUseChannels() has the reasoning.
+    if (!MayUseChannels())
         return false;
     if (msg.empty())
     {
@@ -4106,8 +4106,8 @@ bool PlayerbotAI::SayToLocalDefense(std::string msg)
 
 bool PlayerbotAI::SayToWorldDefense(std::string msg)
 {
-    // A bot NPC never volunteers chat. MaySpeak() has the reasoning.
-    if (!MaySpeak())
+    // A bot NPC or a silent companion never posts in a channel. MayUseChannels() has the reasoning.
+    if (!MayUseChannels())
         return false;
 #ifdef MANGOSBOT_ZERO
     //check if 11 honor rank
@@ -4141,8 +4141,8 @@ bool PlayerbotAI::SayToWorldDefense(std::string msg)
 
 bool PlayerbotAI::SayToGuildRecruitment(std::string msg)
 {
-    // A bot NPC never volunteers chat. MaySpeak() has the reasoning.
-    if (!MaySpeak())
+    // A bot NPC or a silent companion never posts in a channel. MayUseChannels() has the reasoning.
+    if (!MayUseChannels())
         return false;
     //check for bot's level? level 60?
     if (msg.empty())
@@ -11838,6 +11838,25 @@ bool PlayerbotAI::HasPlayerRelation()
 bool PlayerbotAI::MaySpeak() const
 {
     return bot && !bot->IsBotNpc();
+}
+
+/*
+ * A SILENT COMPANION NEVER POSTS IN A CHANNEL: World, General, Trade, LFG,
+ * the defense channels, guild.
+ *
+ * FOUND 2026-10-26: "Done and dusted, turned in [quest]" in World, from a hired
+ * companion. `silent` muted every reply to the owner, but BroadcastHelper goes
+ * straight to SayToWorld / SayToGeneral, and those asked only MaySpeak(). Party,
+ * raid, say and yell stay on MaySpeak() alone: a companion's pull call-out and
+ * resurrect lines are meant for the people beside it.
+ *
+ * AiPlayerbot.EnableBroadcasts = 0 in the conf stops the broadcasts for every
+ * bot. This gate keeps companions out of the channels if that is ever turned
+ * back on for a random population.
+ */
+bool PlayerbotAI::MayUseChannels()
+{
+    return MaySpeak() && !HasStrategy("silent", BotState::BOT_STATE_NON_COMBAT);
 }
 
 void PlayerbotAI::QueueChatResponse(uint32 msgType, ObjectGuid guid1, ObjectGuid guid2, std::string message, std::string chanName, std::string name, bool noDelay)

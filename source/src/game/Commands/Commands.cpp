@@ -12,6 +12,7 @@
 #include "ComfyCommands.h"
 #include "CustomMerchantMgr.h"
 #include "Moonstones.h"
+#include "Housing/HouseMgr.h"
 #include "LevelCap.h"
 #include "DungeonTuning.h"
 #include "CraftPoints.h"
@@ -15513,6 +15514,7 @@ namespace
         { "comfyhelp",         ".comfyhelp   this list" },
         { "comfynpcs",         ".comfynpcs   send ComfyUI the bot NPC names (the addon sends this)" },
         { "moonstone",         ".moonstone <bag> <slot>   trade one item for Rune Chips (the addon sends this)" },
+        { "compact",           ".compact <bag> <slot>   sell one item at a house's Junk Compactor (the addon sends this)" },
         { "bug",               ".bug <text>   file a bug report to the website" },
         { "suggest",           ".suggest <text>   file a suggestion to the website" },
         { "house go",          ".house go | visit <name> | reset   your house, or somebody else's" },
@@ -15571,6 +15573,19 @@ bool ComfyCommands::HandleMoonstoneCommand(ChatHandler* handler, char* args)
         return false;
 
     sMoonstoneMgr.Trade(player, bag, slot);
+    return true;
+}
+
+// The Junk Compactor's pick mode sends one per click, the same shape as
+// `.moonstone`. HouseUpgrades.cpp does the checks and the sale.
+bool ComfyCommands::HandleCompactCommand(ChatHandler* handler, char* args)
+{
+    Player* player = handler->m_session ? handler->m_session->GetPlayer() : nullptr;
+    uint32 bag, slot;
+    if (!player || !handler->ExtractUInt32(&args, bag) || !handler->ExtractUInt32(&args, slot))
+        return false;
+
+    HouseCompactItem(player, bag, slot);
     return true;
 }
 

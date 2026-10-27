@@ -1176,6 +1176,7 @@ ChatCommand * ChatHandler::getCommandTable()
         { "comfyhelp",      SEC_PLAYER,           true,  &ComfyCommands::HandleComfyHelpCommand,         "", nullptr },
         { "comfynpcs",      SEC_PLAYER,           false, &ComfyCommands::HandleComfyNpcsCommand,         "", nullptr },
         { "moonstone",      SEC_PLAYER,           false, &ComfyCommands::HandleMoonstoneCommand,         "", nullptr },
+        { "compact",        SEC_PLAYER,           false, &ComfyCommands::HandleCompactCommand,           "", nullptr },
         { "companions",     SEC_PLAYER,           false, &ComfyCommands::HandleCompanionsCommand,        "", nullptr },
         // Before "ccdebug": the first row that `.cc` abbreviates wins.
         { "cc",             SEC_PLAYER,           false, &ComfyCommands::HandleCompanionOrderCommand,    "", nullptr },

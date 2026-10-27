@@ -29,24 +29,11 @@ namespace
     // How close you have to stand to act on a piece of furniture.
     float const HOUSE_REACH = 10.0f;
 
-    // Phase 1 keeps ordinary players to pure decoration. A private instance
-    // limits the damage, but a mailbox or a summoning circle placed there is
-    // still a real gameplay shortcut, and some types (transports, traps) simply
-    // misbehave when spawned by hand. Phase 3 replaces this with a curated
-    // catalogue; until then, anyone at SEC_DEVELOPER or above skips the check
-    // so the catalogue can be explored.
-    bool IsDecorative(GameObjectInfo const* info)
-    {
-        switch (info->type)
-        {
-            case GAMEOBJECT_TYPE_GENERIC:
-            case GAMEOBJECT_TYPE_CHAIR:
-            case GAMEOBJECT_TYPE_MAP_OBJECT:
-                return true;
-            default:
-                return false;
-        }
-    }
+    // Ordinary players place decoration only with this command. The working
+    // objects (a mailbox, the repair table) come as upgrade crates; some
+    // other types (transports, traps)
+    // misbehave when spawned by hand. SEC_DEVELOPER skips the check so the
+    // catalogue can be explored. The type list is HouseMgr::IsDecorativeType.
 
     // What to call a piece of furniture in a message: its name and its number,
     // together, because each answers a question the other cannot. The name
@@ -262,7 +249,7 @@ bool ComfyCommands::HandleHouseObjectAddCommand(ChatHandler* handler, char* args
         return false;
     }
 
-    if (!IsDecorative(info) && handler->GetAccessLevel() < SEC_DEVELOPER)
+    if (!HouseMgr::IsDecorativeType(info) && handler->GetAccessLevel() < SEC_DEVELOPER)
     {
         handler->PSendSysMessage("\"%s\" is not something you can put in a house.", HouseMgr::ObjectDisplayName(entry).c_str());
         handler->SetSentErrorMessage(true);
@@ -2071,9 +2058,9 @@ void HousePrintStorage(Player* player)
     handler.SendSysMessage("  .house storage take <number> to fetch one back.");
 }
 
-// What the panel's "How this works" prints. Deliberately the short list rather
-// than the whole command set -- docs/housing.txt is the whole command set, and a
-// wall of chat is not a help page.
+// What the exit gear's "House Manual" prints. The short list, not the whole
+// command set: a wall of chat is not a help page. No /house line: that panel is
+// ComfyHousingDev, which players are not offered.
 void HousePrintHouseHelp(Player* player)
 {
     ChatHandler handler(player);
@@ -2086,7 +2073,6 @@ void HousePrintHouseHelp(Player* player)
     handler.SendSysMessage("  .house settings        how placing and the selection glow behave");
     handler.SendSysMessage("  .house visit <name>    their house, while they lead your party");
     handler.SendSysMessage("  .house admit <name>    let in a knock, while your door is locked");
-    handler.SendSysMessage("  /house opens the addon, which is buttons for all of it.");
 }
 
 // The addon's copy of the shelf. Same three-message grammar as the object sync

@@ -22,6 +22,7 @@ struct ComfyCommands
     static bool HandleComfyHelpCommand(ChatHandler* handler, char* args);
     static bool HandleComfyNpcsCommand(ChatHandler* handler, char* args);
     static bool HandleMoonstoneCommand(ChatHandler* handler, char* args);
+    static bool HandleCompactCommand(ChatHandler* handler, char* args);
     static bool HandleGuildHouseCommand(ChatHandler* handler, char* args);
     static bool HandleModifyNpcFlagCommand(ChatHandler* handler, char* args);
     static bool HandleSetLevelCommand(ChatHandler* handler, char* args);

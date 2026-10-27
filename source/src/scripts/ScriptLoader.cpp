@@ -389,6 +389,7 @@ void AddSC_warrior_spell_scripts();
 void AddSC_player_house();
 void AddSC_house_portal();
 void AddSC_house_control();
+void AddSC_house_upgrades();
 
 void AddScripts()
 {
@@ -396,6 +397,7 @@ void AddScripts()
     AddSC_player_house();
     AddSC_house_portal();
     AddSC_house_control();
+    AddSC_house_upgrades();
 
     //Nostalrius
     AddSC_generic_spell_ai();

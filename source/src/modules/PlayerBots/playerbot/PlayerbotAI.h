@@ -429,6 +429,9 @@ public:
     // the top of every emitter below; PlayerbotAI.cpp has the reasoning and the
     // measurement that earned it.
     bool MaySpeak() const;
+    // MaySpeak(), and false for a bot with the `silent` strategy. Asked by the
+    // channel emitters (guild, World, General, Trade, LFG, defense, recruitment).
+    bool MayUseChannels();
 
     bool SayToGuild(std::string msg, bool likePlayer = false);
     bool SayToWorld(std::string msg);
