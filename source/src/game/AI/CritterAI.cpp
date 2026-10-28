@@ -22,7 +22,8 @@
 
 int CritterAI::Permissible(Creature const* creature)
 {
-    if (creature->GetCreatureInfo()->type == CREATURE_TYPE_CRITTER)
+    // Ties with PetAI, and "CritterAI" sorts first in the registry, so a pet must say no here.
+    if (!creature->IsPet() && creature->GetCreatureInfo()->type == CREATURE_TYPE_CRITTER)
         return PERMIT_BASE_SPECIAL;
 
     return PERMIT_BASE_NO;

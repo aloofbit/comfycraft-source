@@ -7595,7 +7595,8 @@ void Player::UpdateSkillsForLevel()
 
 // Class spells the SkillLineAbility walk in LearnClassSpellsForLevel does not find:
 // the hunter's pet spells are SpellFamilyName 0, not the hunter's 9, and a class quest
-// teaches most of them. Felsteed and Dreadsteed are family 0 too. Each level is the
+// teaches most of them. Felsteed, Dreadsteed and every rank of Redemption are family 0
+// too; without Redemption no bot paladin ever resurrected anyone. Each level is the
 // spell's own spellLevel, so UnlearnSpellsAboveLevel judges a row as the walk would.
 // Bots get the whole list because they never do the class quests.
 struct QuestOnlySpell { uint8 cls; uint32 level; uint32 spell; };
@@ -7608,6 +7609,11 @@ static QuestOnlySpell const sQuestOnlySpells[] =
     { CLASS_HUNTER,  10,  6991 },   // Feed Pet           (Training the Beast, 5300)
     { CLASS_HUNTER,  10,   982 },   // Revive Pet         (Training the Beast, 5300)
     { CLASS_HUNTER,  24,  1462 },   // Beast Lore         (trainer)
+    { CLASS_PALADIN, 12,  7328 },   // Redemption 1       (The Tome of Divinity, 1785)
+    { CLASS_PALADIN, 24, 10322 },   // Redemption 2       (trainer, needs rank 1)
+    { CLASS_PALADIN, 36, 10324 },   // Redemption 3       (trainer)
+    { CLASS_PALADIN, 48, 20772 },   // Redemption 4       (trainer)
+    { CLASS_PALADIN, 60, 20773 },   // Redemption 5       (trainer)
     { CLASS_WARLOCK,  1,   688 },   // Summon Imp         (7763)
     { CLASS_WARLOCK, 10,   697 },   // Summon Voidwalker  (11520)
     { CLASS_WARLOCK, 20,   712 },   // Summon Succubus    (11519)

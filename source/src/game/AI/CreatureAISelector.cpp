@@ -75,7 +75,8 @@ CreatureAI* selectAI(Creature *creature)
     if (!ai_factory && creature->IsGuard())
         ai_factory = ai_registry.GetRegistryItem("GuardAI");
 
-    if (!ai_factory && creature->GetCreatureInfo()->type == CREATURE_TYPE_CRITTER)
+    // A summoned companion pet is type 8 too (sql/custom/177); PetAI is what makes it follow.
+    if (!ai_factory && !creature->IsPet() && creature->GetCreatureInfo()->type == CREATURE_TYPE_CRITTER)
         ai_factory = ai_registry.GetRegistryItem("CritterAI");
 
     // select by permit check
