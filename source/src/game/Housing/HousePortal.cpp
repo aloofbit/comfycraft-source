@@ -2647,8 +2647,11 @@ static bool GOHello_go_house_home_portal(Player* player, GameObject* go)
     return sHouseMgr.UseHomePortal(player, go);
 }
 
-// Closes the portal once HouseMgr forgets it: the caster logged out, or cast a
-// second one. The check runs here, on the portal's own map.
+// Closes the portal once HouseMgr forgets it (the caster logged out, or cast a
+// second one) or once its lifetime is up. The check runs here, on the
+// portal's own map. A summoned goober with no owner and no spell is only
+// despawned at the end of its lifetime, not deleted (GameObject::Update,
+// GO_JUST_DEACTIVATED), and a GM sees and can click a despawned object.
 struct go_house_home_portal_ai : public GameObjectAI
 {
     explicit go_house_home_portal_ai(GameObject* go) : GameObjectAI(go), m_timer(HOUSE_PORTAL_INTERVAL), m_closed(false) {}
@@ -2665,7 +2668,7 @@ struct go_house_home_portal_ai : public GameObjectAI
         }
         m_timer = HOUSE_PORTAL_INTERVAL;
 
-        if (sHouseMgr.IsHomePortalOpen(me->GetObjectGuid()))
+        if (me->IsSpawned() && sHouseMgr.IsHomePortalOpen(me->GetObjectGuid()))
             return;
 
         m_closed = true;

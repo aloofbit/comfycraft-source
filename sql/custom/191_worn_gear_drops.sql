@@ -3,7 +3,7 @@
 -- Written by tools/gen-worn-gear-sql.js; change the generator, not this file.
 -- 506 loot tables, 1257 rows, 698 items.
 -- The chance is Worn gear on the Drop rates page (tw_char.loot_rates.worn_gear,
--- 192_loot_rates_worn_gear.sql). Each row rolls at it in place of its 5.
+-- 192_loot_rates_worn_gear.sql). The group rolls once at it, then picks one row.
 -- Hand edits from /admin/worngear are in worn_gear_edit, applied at the end.
 -- Remove: DELETE FROM creature_loot_template WHERE groupid = 40;
 

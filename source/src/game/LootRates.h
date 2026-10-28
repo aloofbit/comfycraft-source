@@ -21,8 +21,8 @@
 namespace LootRates
 {
     // The loot group of the worn gear drops (tools/gen-worn-gear-sql.js): the
-    // armour a mob wears. Each of its rows rolls at WornGear() in place of its
-    // table chance, and no other rate touches it.
+    // armour a mob wears. The group rolls once at WornGear(), and a hit gives
+    // one of its rows at random. No other rate touches it.
     constexpr uint8 WornGearGroup = 40;
 
     // Re-reads the row, or the conf keys when the table is missing. Returns

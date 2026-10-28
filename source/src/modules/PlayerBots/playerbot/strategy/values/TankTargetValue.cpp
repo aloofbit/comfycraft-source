@@ -49,11 +49,40 @@ protected:
     Player* master;
 };
 
+// Only a mob that attacks somebody other than the tank.
+class FindLooseTargetForTankStrategy : public FindTargetForTankStrategy
+{
+public:
+    FindLooseTargetForTankStrategy(PlayerbotAI* ai, Unit* held, Player* master) : FindTargetForTankStrategy(ai, held, master) {}
+
+    void CheckAttacker(Unit* creature, ThreatManager* threatManager) override
+    {
+        Unit* victim = creature->GetVictim();
+        if (!victim || victim == ai->GetBot())
+            return;
+
+        FindTargetForTankStrategy::CheckAttacker(creature, threatManager);
+    }
+
+    // No fallback to a crowd-controlled mob: a sheep is not loose.
+    Unit* GetResult() override { return result; }
+};
 
 Unit* TankTargetValue::Calculate()
 {
+    // A LOOSE MOB BEFORE THE SKULL (2026-10-28). The skull was the tank's target
+    // whatever else happened, so a mob on the healer stayed there. The skull is
+    // now the tank's target only when no mob attacks another member of the
+    // group. TankAssistTrigger switches to a loose mob, and the skull is first
+    // again once that mob is on the tank. AttackersValue keeps every mob on a
+    // tank's list for this.
     Unit* rti = RtiTargetValue::Calculate();
-    if (rti) return rti;
+    if (rti)
+    {
+        FindLooseTargetForTankStrategy loose(ai, AttackersValue::HeldTarget(ai), ai->GetMaster());
+        Unit* looseMob = FindTarget(&loose);
+        return looseMob ? looseMob : rti;
+    }
 
     FindTargetForTankStrategy strategy(ai, AttackersValue::HeldTarget(ai), ai->GetMaster());
     return FindTarget(&strategy);

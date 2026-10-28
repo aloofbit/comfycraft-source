@@ -7720,6 +7720,74 @@ void Player::UnlearnSpellsAboveLevel()
 // Defensive Stance arrive with the rest. Talents stay the player's to spend, and so does
 // anything without a level of its own: proficiencies, recipes and racials all read 0 and
 // do not follow the level in either direction.
+// Every spell a player can get in play: what a trainer, a quest reward or an item
+// teaches (through its SPELL_EFFECT_LEARN_SPELL), and the starting spells of any race
+// and class. SkillLineAbility alone is not enough. It still lists the vanilla talents
+// Turtle took out of Talent.dbc, so GetTalentSpellPos no longer knows them: .setlevel
+// taught a warrior Improved Shield Block 1-3 and Flurry 1-5 with no point spent. The
+// client then drew "block 2 attacks" on Shield Block while the server blocked 1.
+// Built on each call, so a reload of npc_trainer or quest_template counts at once.
+static std::unordered_set<uint32> BuildTaughtSpells()
+{
+    std::unordered_set<uint32> taught;
+
+    auto addLearned = [&taught](uint32 teachSpell)
+    {
+        SpellEntry const* spellInfo = sSpellMgr.GetSpellEntry(teachSpell);
+        if (!spellInfo)
+            return;
+
+        for (uint32 i = 0; i < MAX_EFFECT_INDEX; ++i)
+            if (spellInfo->Effect[i] == SPELL_EFFECT_LEARN_SPELL)
+                taught.insert(spellInfo->EffectTriggerSpell[i]);
+    };
+
+    auto addTrainer = [&addLearned](TrainerSpellData const* data)
+    {
+        if (!data)
+            return;
+
+        for (auto const& itr : data->spellList)
+            addLearned(itr.second.spell);
+    };
+
+    std::unordered_set<uint32> templates;
+    for (auto const& itr : sObjectMgr.GetCreatureInfoMap())
+    {
+        CreatureInfo const* cInfo = itr.second.get();
+        if (!cInfo || !(cInfo->npc_flags & UNIT_NPC_FLAG_TRAINER))
+            continue;
+
+        addTrainer(sObjectMgr.GetNpcTrainerSpells(cInfo->entry));
+        if (cInfo->trainer_id && templates.insert(cInfo->trainer_id).second)
+            addTrainer(sObjectMgr.GetNpcTrainerTemplateSpells(cInfo->trainer_id));
+    }
+
+    for (auto const& itr : sObjectMgr.GetQuestTemplates())
+    {
+        for (uint32 spellId : { itr.second->GetRewSpell(), itr.second->GetRewSpellCast() })
+        {
+            if (!spellId)
+                continue;
+
+            taught.insert(spellId);
+            addLearned(spellId);
+        }
+    }
+
+    for (auto const& itr : sObjectMgr.GetItemPrototypeMap())
+        for (auto const& spell : itr.second.Spells)
+            if (spell.SpellId)
+                addLearned(spell.SpellId);
+
+    for (uint32 race = 1; race < MAX_RACES; ++race)
+        for (uint32 cls = 1; cls < MAX_CLASSES; ++cls)
+            if (PlayerInfo const* info = sObjectMgr.GetPlayerInfo(race, cls))
+                taught.insert(info->spell.begin(), info->spell.end());
+
+    return taught;
+}
+
 void Player::LearnClassSpellsForLevel()
 {
     // Start from a clean book, so that nothing above the level and nothing stale can
@@ -7727,6 +7795,7 @@ void Player::LearnClassSpellsForLevel()
     UnlearnSpellsAboveLevel();
 
     uint32 const level = GetLevel();
+    std::unordered_set<uint32> const taught = BuildTaughtSpells();
 
     for (uint32 i = 0; i < sObjectMgr.GetMaxSkillLineAbilityId(); ++i)
     {
@@ -7736,6 +7805,9 @@ void Player::LearnClassSpellsForLevel()
 
         SpellEntry const* spellInfo = sSpellMgr.GetSpellEntry(entry->spellId);
         if (!IsLevelBoundClassSpell(spellInfo) || spellInfo->spellLevel > level)
+            continue;
+
+        if (!taught.count(spellInfo->Id))
             continue;
 
         if (!IsSpellFitByClassAndRace(spellInfo->Id))

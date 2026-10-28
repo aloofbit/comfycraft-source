@@ -228,28 +228,9 @@ bool Engine::DoNextAction(Unit* unit, int depth, bool minimal, bool isStunned)
 
             if (!action)
             {
-                if (sPlayerbotAIConfig.CanLogAction(ai, actionNode->getName(), false, ""))
-                {
-                    std::ostringstream out;
-                    out << "try: ";
-                    out << actionNode->getName();
-                    out << " unknown (";
-
-                    out << std::fixed << std::setprecision(3);
-                    out << relevance << ")";
-
-                    if (!event.getSource().empty())
-                        out << " [" << event.getSource() << "]";
-
-                    if (ai->GetMaster())
-                    {
-                        ai->TellPlayerNoFacing(ai->GetMaster(), out, PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, true, false);
-                    }
-                    else
-                    {
-                        ai->GetBot()->Say(out.str(), (ai->GetBot()->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
-                    }
-                }
+                // No debug line for an action this build has no class for, such
+                // as Mana Tap, a racial from a later expansion (2026-10-28). It
+                // is asked on every tick its trigger holds, and nothing comes of it.
                 LogAction("A:%s - UNKNOWN", actionNode->getName().c_str());
             }
             else
@@ -378,7 +359,7 @@ bool Engine::DoNextAction(Unit* unit, int depth, bool minimal, bool isStunned)
                     }
                     else
                     {
-                        if (sPlayerbotAIConfig.CanLogAction(ai,actionNode->getName(), false, ""))
+                        if (!action->RefusedAsUnknownSpell() && sPlayerbotAIConfig.CanLogAction(ai,actionNode->getName(), false, ""))
                         {
                             std::ostringstream out;
                             out << "try: ";
@@ -406,7 +387,7 @@ bool Engine::DoNextAction(Unit* unit, int depth, bool minimal, bool isStunned)
                 }
                 else
                 {
-                    if (sPlayerbotAIConfig.CanLogAction(ai,actionNode->getName(), false, ""))
+                    if (!action->RefusedAsUnknownSpell() && sPlayerbotAIConfig.CanLogAction(ai,actionNode->getName(), false, ""))
                     {
                         std::ostringstream out;
                         out << "try: ";

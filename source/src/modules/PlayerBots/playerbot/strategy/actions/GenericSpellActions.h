@@ -18,7 +18,8 @@ namespace ai
         bool ShouldReactionInterruptCast() const override { return true; }
 
         bool HasReachAction() { return !GetReachActionName().empty(); }
-        
+        bool RefusedAsUnknownSpell() const override { return notKnown; }
+
     protected:
         const uint32& GetSpellID() const { return spellId; }
         const std::string& GetSpellName() const { return spellName; }
@@ -33,6 +34,7 @@ namespace ai
 
     protected:
 		float range;
+        bool notKnown = false;
 
     private:
         std::string spellName;

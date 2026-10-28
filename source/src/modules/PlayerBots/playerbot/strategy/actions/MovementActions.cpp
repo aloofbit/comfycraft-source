@@ -2772,18 +2772,31 @@ bool MovementAction::ChaseTo(WorldObject* obj, float distance, float angle)
     // tank out of position mid-pull despite the gate existing. Chasing every
     // override is a losing game; the two primitives that actually move a bot
     // are not.
+    auto yards = [](const char* what, float value)
+    {
+        char text[48];
+        snprintf(text, sizeof(text), "%s %.1f yd", what, value);
+        return std::string(text);
+    };
+    chaseHow.clear();
+
     if (!IsPullMovement() && IsPullRunning())
+    {
+        chaseHow = "pull running";
         return false;
+    }
 
     if (!ai->CanMove())
     {
         sLog.outDetail("[BOT CHASE] %s: CanMove() blocked", bot->GetName());
+        chaseHow = "cannot move";
         return false;
     }
 
     if (!ai->IsSafe(obj))
     {
         sLog.outDetail("[BOT CHASE] %s: IsSafe() blocked", bot->GetName());
+        chaseHow = "target not safe";
         return false;
     }
 
@@ -2826,7 +2839,10 @@ bool MovementAction::ChaseTo(WorldObject* obj, float distance, float angle)
     const float distanceToTarget = botPosition.distance(targetPosition);
 
     if (distanceToTarget > sPlayerbotAIConfig.sightDistance)
+    {
+        chaseHow = yards("far, move to", distanceToTarget);
         return MoveTo(targetPosition.getMapId(), targetPosition.getX(), targetPosition.getY(), targetPosition.getZ());
+    }
 
     const Vector3 directionToTarget = (targetPoint - botPoint).directionOrZero();
     const Vector3 endPoint = botPoint + (directionToTarget * std::min(distance, distanceToTarget));
@@ -2835,7 +2851,8 @@ bool MovementAction::ChaseTo(WorldObject* obj, float distance, float angle)
 
     // Check if the end position is inside a hazard
     HazardPosition hazardPosition;
-    if (IsHazardNearPosition(endPosition, &hazardPosition))
+    const bool endInHazard = IsHazardNearPosition(endPosition, &hazardPosition);
+    if (endInHazard)
     {
         // Try to generate a nearby position outside the hazard
         const Vector3 hazardPoint = hazardPosition.first.getVector3();
@@ -2883,6 +2900,7 @@ bool MovementAction::ChaseTo(WorldObject* obj, float distance, float angle)
             sLog.outDetail("[BOT CHASE] %s -> %s: dist=%.1f target=%.1f pts=%u wait=%.2f (MovePath)",
                 bot->GetName(), obj->GetName(), distanceToTarget, distance, (uint32)path.size(), distance / bot->GetSpeed(MOVE_RUN));
             WaitForReach(distance);
+            chaseHow = yards("path round hazard", distance) + (endInHazard ? ", end moved out of one" : "");
             return true;
         }
         sLog.outDetail("[BOT CHASE] %s -> %s: dist=%.1f no hazard-avoidance path (no hazards or unroutable), using MoveChase", bot->GetName(), obj->GetName(), distanceToTarget);
@@ -2900,6 +2918,7 @@ bool MovementAction::ChaseTo(WorldObject* obj, float distance, float angle)
         {
             bot->SetTarget(obj); //Needed to keep chase going in combat.
             bot->Attack((Unit*)obj, false); //Needed to keep chase going in combat.
+            chaseHow = "already chasing";
             return true;
         }
     }
@@ -2909,20 +2928,32 @@ bool MovementAction::ChaseTo(WorldObject* obj, float distance, float angle)
     // and the chase below interrupted every charge a bot made.
     if (ai->IsCharging())
     {
+        chaseHow = "charging";
         return false;
     }
 
-    if (!ai->IsSafe(obj)) return false;
+    if (!ai->IsSafe(obj))
+    {
+        chaseHow = "target not safe";
+        return false;
+    }
 
     // Find jump shortcut
     if (ai->HasStrategy("follow chase", BotState::BOT_STATE_NON_COMBAT) && ai->AllowActivity())
     {
         bool tryJump = ai->DoSpecificAction("jump::chase", Event(), true);
         if (tryJump)
+        {
+            chaseHow = "jump";
             return true;
+        }
     }
 
-    if (!endPosition.isValid()) return false;
+    if (!endPosition.isValid())
+    {
+        chaseHow = "no end point";
+        return false;
+    }
     if (angle > 20) angle = 0;
 
     bot->SetTarget(obj); //Needed to keep chase going in combat.
@@ -2934,6 +2965,7 @@ bool MovementAction::ChaseTo(WorldObject* obj, float distance, float angle)
     sLog.outDetail("[BOT CHASE] %s -> %s: dist=%.1f target=%.1f wait=%.2f (MoveChase)",
         bot->GetName(), obj->GetName(), dist, distance, distDiff / bot->GetSpeed(MOVE_RUN));
     WaitForReach(distDiff);
+    chaseHow = yards("chase", distDiff);
 
     return true;
 }

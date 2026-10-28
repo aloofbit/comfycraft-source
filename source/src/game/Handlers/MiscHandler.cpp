@@ -275,8 +275,9 @@ void WorldSession::HandleWhoOpcode(WorldPacket & recv_data)
 
     time_t t = time(nullptr);
 
-
-    if (t - m_lastWhoRequest < 30 && !(GetPlayer() && GetPlayer()->HasCustomFlag(CUSTOM_PLAYER_FLAG_BYPASS_WHO_COOLDOWN)))
+    // Who.Cooldown, read here and not in World.h so a change rebuilds one object
+    time_t const cooldown = std::max(sConfig.GetIntDefault("Who.Cooldown", 30), 0);
+    if (t - m_lastWhoRequest < cooldown && !(GetPlayer() && GetPlayer()->HasCustomFlag(CUSTOM_PLAYER_FLAG_BYPASS_WHO_COOLDOWN)))
         return;
 
     std::string player_name, guild_name;

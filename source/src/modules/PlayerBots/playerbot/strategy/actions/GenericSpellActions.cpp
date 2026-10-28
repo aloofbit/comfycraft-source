@@ -193,6 +193,21 @@ bool CastSpellAction::isPossible()
         }
     }
 
+    // A SPELL THE BOT DOES NOT KNOW IS NOT WORTH A LINE (2026-10-28). The racials
+    // strategy carries every race's racials, and a class strategy carries spells
+    // of every spec. A protection warrior tried Escape Artist, Cannibalize, War
+    // Stomp, Mortal Strike and Devastate on every tick of a fight and wrote a
+    // `why:` and a `try: ... impossible` line for each. CanCastSpell below says
+    // no to these anyway, with SPELL_FAILED_NOT_KNOWN, after the reach check had
+    // also written "out of reach" for them. The engine now writes nothing for a
+    // spell refused here.
+    {
+        const uint32 knownId = AI_VALUE2(uint32, "spell id", spellName);
+        notKnown = !knownId || !ai->HasSpell(knownId);
+        if (notKnown)
+            return false;
+    }
+
     // WHY "IMPOSSIBLE". With `debug action` on, the engine prints
     // "try: <spell> impossible" and nothing more, and this function has four
     // ways to say no. Say which one, on the line before the engine's.

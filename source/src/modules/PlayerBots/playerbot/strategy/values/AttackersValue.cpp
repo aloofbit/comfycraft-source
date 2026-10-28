@@ -79,6 +79,7 @@ std::list<ObjectGuid> AttackersValue::Calculate()
         return defending;
     }
 
+    ObjectGuid tankMark;
     if (ai->HasStrategy("focus rti targets", BotState::BOT_STATE_COMBAT))
     {
         Unit* rtiTarget = AI_VALUE(Unit*, "rti target");
@@ -102,7 +103,16 @@ std::list<ObjectGuid> AttackersValue::Calculate()
             // dependency is gone: CcTargetValue resolves "rti cc target"
             // directly, so no narrowing of this attack list can switch cc off
             // any more - which is the point of having moved it.
-            return { rtiTarget->GetObjectGuid() };
+            //
+            // A TANK KEEPS THE WHOLE FIGHT (2026-10-28). With the list cut to
+            // the skull, `tank assist` had nothing else to choose from: a tank
+            // chased a skulled Defias Evoker for 57 s while a Defias Miner hit
+            // it in the back, and a mob on the healer was never taken off. A
+            // tank gets every mob, with the skull first (see the end of this
+            // function). Everyone else still fights the skull only.
+            if (!ai->IsTank(bot))
+                return { rtiTarget->GetObjectGuid() };
+            tankMark = rtiTarget->GetObjectGuid();
         }
 
         // NO MARK MEANS NORMAL TARGETING, NOT NO TARGETING.
@@ -267,6 +277,15 @@ std::list<ObjectGuid> AttackersValue::Calculate()
     }
 
     HoldApproaching(result);
+
+    // The tank's skull goes first, and is never held: a bot that is not a tank
+    // gets it alone, before the hold.
+    if (!tankMark.IsEmpty())
+    {
+        result.remove(tankMark);
+        result.push_front(tankMark);
+    }
+
     return result;
 }
 

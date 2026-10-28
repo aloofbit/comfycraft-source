@@ -43,6 +43,10 @@ namespace ai
         static bool MoveOffTransport(PlayerbotAI* ai, WorldPosition exitPos, bool doTeleport);
 
         bool ChaseTo(WorldObject *obj, float distance = 0.0f, float angle = 0.0f);
+        // How the last ChaseTo moved the bot, or why it did not: "path 6.2 yd",
+        // "chase 4.0 yd", "already chasing", "cannot move". The reach actions
+        // write it to the debug log.
+        std::string chaseHow;
         bool MoveNear(uint32 mapId, float x, float y, float z, float distance = sPlayerbotAIConfig.contactDistance);
         bool FlyDirect(const WorldPosition &startPosition,  const WorldPosition &endPosition , WorldPosition& movePosition, TravelPath movePath);
 

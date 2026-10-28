@@ -88,7 +88,7 @@ private:
     bool hasConditionalEqualChancedItem;
     bool hasRareWorldGear;                              // an entry takes the rare gear rate (IsRareWorldGear)
     bool hasGreenGear;                                  // an entry takes the green gear rate (IsGreenGear)
-    bool wornGear;                                      // LootRates::WornGearGroup: each entry rolls at WornGear()
+    bool wornGear;                                      // LootRates::WornGearGroup: one roll at WornGear(), then a random entry
 };
 
 //Remove all data and free all memory
@@ -1714,6 +1714,23 @@ void LootTemplate::LootGroup::GearScale(float greenRate, float const rareRates[2
 // Rolls an item from the group, returns nullptr if all miss their chances
 LootStoreItem const * LootTemplate::LootGroup::Roll(Loot const& loot, bool rate, Player const* lootOwner, bool skipQuestItems) const
 {
+    // Worn gear: one roll at WornGear() for the group, then one of its rows at
+    // random. The row's table chance is not used, so a mob with 7 worn items
+    // drops worn gear as often as a mob with 1.
+    if (wornGear)
+    {
+        if (!roll_chance_f(LootRates::WornGear()))
+            return nullptr;
+
+        std::vector<LootStoreItem const*> pick;
+        for (const auto& i : ExplicitlyChanced)
+            if (i.AllowedForTeam(loot) && !(skipQuestItems && i.needs_quest))
+                pick.push_back(&i);
+        if (pick.empty())
+            return nullptr;
+        return pick[urand(0, pick.size() - 1)];
+    }
+
     if (!ExplicitlyChanced.empty())                         // First explicitly chanced entries are checked
     {
         float Roll = rand_chance_f();
@@ -1738,7 +1755,7 @@ LootStoreItem const * LootTemplate::LootGroup::Roll(Loot const& loot, bool rate,
             if (skipQuestItems && i.needs_quest)            // rolled for each looter in LootGroup::Process
                 continue;
 
-            float chance = wornGear ? LootRates::WornGear() : i.chance;
+            float chance = i.chance;
             if (chance >= 100.0f)
                 return &i;
 

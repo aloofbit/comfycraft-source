@@ -90,8 +90,9 @@ namespace ai
                         sServerFacade.IsInFront(target, bot, sPlayerbotAIConfig.sightDistance, CAST_ANGLE_IN_FRONT) &&
                         sServerFacade.IsDistanceGreaterThan(distanceToTarget, sPlayerbotAIConfig.tooCloseDistance))
                 {
+                    ExplainReach(target, distanceToTarget, "waits for it to come");
                     return true;
-                }                 
+                }
 
                 if (ai->HasStrategy("debug move", BotState::BOT_STATE_NON_COMBAT))
                 {
@@ -100,9 +101,12 @@ namespace ai
                     ai->TellPlayerNoFacing(GetMaster(), out);
                 }
                 
-                const bool moved = (inLos && isFriend && (range <= ai->GetRange("follow")))
+                const bool walkNear = inLos && isFriend && (range <= ai->GetRange("follow"));
+                const bool moved = walkNear
                     ? MoveNear(target, chaseDist)
                     : ChaseTo(target, chaseDist, bot->GetAngle(target));
+                ExplainReach(target, distanceToTarget, walkNear ? "move near" : (chaseHow.empty() ? "no chase" : chaseHow) +
+                    (inLos ? "" : ", no line of sight"));
 
                 // COMMIT TO THE MOVE WHEN THE PROBLEM IS A WALL.
                 //
@@ -162,6 +166,7 @@ namespace ai
             // the opener could not be cast at all. It printed once because the
             // narration de-duplicates identical lines; it was running on every
             // tick.
+            notKnown = false;
             if (!MovementAction::isUseful())
                 return false;
 
@@ -185,8 +190,12 @@ namespace ai
                     if (!bot->IsNonMeleeSpellCasted(true, false, true))
                     {
                         // Check if the spell for which the reach action is used for can be casted
-                        if (!spellName.empty() && !ai->CanCastSpell(spellName, target, true, nullptr, true, true, true))
+                        SpellCastResult result = SPELL_CAST_OK;
+                        if (!spellName.empty() && !ai->CanCastSpell(spellName, target, true, nullptr, true, true, true, &result))
                         {
+                            // A spell the bot does not know: no debug line, see
+                            // CastSpellAction::isPossible.
+                            notKnown = result == SPELL_FAILED_NOT_KNOWN;
                             return false;
                         }
 
@@ -207,6 +216,7 @@ namespace ai
 
         virtual std::string GetTargetName() override { return "current target"; }
         std::string GetSpellName() const { return spellName; }
+        bool RefusedAsUnknownSpell() const override { return notKnown; }
 
         virtual Unit* GetTarget() override
         {
@@ -229,8 +239,50 @@ namespace ai
         }
 
     protected:
+        // A REACH SAYS WHERE IT WENT (2026-10-28). "reach melee 1" means only
+        // that a move started. A tank ran at a Defias Evoker for 8 s, never got
+        // to it, and the log could not say what it ran at or how far it got.
+        // With `debug` on, each reach writes its target, the gap to it, how far
+        // the bot and the target moved since the last reach, and how ChaseTo
+        // moved the bot.
+        void ExplainReach(Unit* target, float gap, const std::string& how)
+        {
+            Player* master = GetMaster();
+            if (!master || !ai->HasStrategy("debug", BotState::BOT_STATE_NON_COMBAT))
+                return;
+
+            const uint32 now = WorldTimer::getMSTime();
+            const WorldPosition botNow(bot);
+            const WorldPosition targetNow(target);
+
+            char text[256];
+            int used = snprintf(text, sizeof(text), "reach: %s %s gap %.1f yd", getName().c_str(), target->GetName(), gap);
+            if (lastReachMs && lastReachMap == bot->GetMapId() && used > 0 && used < (int)sizeof(text))
+            {
+                used += snprintf(text + used, sizeof(text) - used, ", in %.1f s it ran %.1f yd",
+                    WorldTimer::getMSTimeDiff(lastReachMs, now) / 1000.0f, botNow.distance(lastReachBot));
+                if (lastReachTarget == target->GetObjectGuid() && used > 0 && used < (int)sizeof(text))
+                    used += snprintf(text + used, sizeof(text) - used, ", the target %.1f yd", targetNow.distance(lastReachTargetPos));
+            }
+
+            ai->TellPlayerNoFacing(master, std::string(text) + ", " + how,
+                PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, true, false);
+
+            lastReachMs = now ? now : 1;
+            lastReachMap = bot->GetMapId();
+            lastReachBot = botNow;
+            lastReachTarget = target->GetObjectGuid();
+            lastReachTargetPos = targetNow;
+        }
+
         float range;
         std::string spellName;
+        bool notKnown = false;
+        uint32 lastReachMs = 0;
+        uint32 lastReachMap = 0;
+        WorldPosition lastReachBot;
+        ObjectGuid lastReachTarget;
+        WorldPosition lastReachTargetPos;
     };
 
     class CastReachTargetSpellAction : public CastSpellAction

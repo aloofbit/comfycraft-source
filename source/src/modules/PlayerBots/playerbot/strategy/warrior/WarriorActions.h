@@ -122,11 +122,47 @@ namespace ai
         std::string getName() override { return "sunder armor on party attacker"; }
     };
     SNARE_ACTION(CastTauntOnSnareTargetAction, "taunt");
-    BUFF_ACTION(CastBloodrageAction, "bloodrage");
+    // SHIELD BLOCK AND BLOODRAGE NEED SOMETHING TO FIGHT (2026-10-28). Both are
+    // self-buffs and ran whenever the combat engine was on. That engine stays on
+    // while every mob near the group is held (HasAttackersValue), so a tank with
+    // `[invalid target]` on every tick blocked and raged at nothing for 42 s.
+    // Bloodrage now wants a target it can attack; Shield Block wants a mob in
+    // melee reach that attacks the bot.
+    class CastBloodrageAction : public CastBuffSpellAction
+    {
+    public:
+        CastBloodrageAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "bloodrage") {}
+
+        bool isUseful() override
+        {
+            Unit* target = AI_VALUE(Unit*, "current target");
+            return target && sServerFacade.IsAlive(target) && bot->IsValidAttackTarget(target) &&
+                CastBuffSpellAction::isUseful();
+        }
+    };
     MELEE_ACTION(CastShieldBashAction, "shield bash");
     ENEMY_HEALER_ACTION(CastShieldBashOnEnemyHealerAction, "shield bash");
     MELEE_ACTION(CastRevengeAction, "revenge");
-    BUFF_ACTION(CastShieldBlockAction, "shield block");
+    class CastShieldBlockAction : public CastBuffSpellAction
+    {
+    public:
+        CastShieldBlockAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "shield block") {}
+
+        bool isUseful() override
+        {
+            bool meleeAttacker = false;
+            for (Unit* attacker : bot->getAttackers())
+            {
+                if (attacker && sServerFacade.IsAlive(attacker) && attacker->CanReachWithMeleeAttack(bot))
+                {
+                    meleeAttacker = true;
+                    break;
+                }
+            }
+
+            return meleeAttacker && CastBuffSpellAction::isUseful();
+        }
+    };
     MELEE_DEBUFF_ACTION_U(CastDisarmAction, "disarm", GetTarget() && GetTarget()->IsPlayer() ? !ai->IsRanged((Player*)GetTarget()) : CastMeleeDebuffSpellAction::isUseful());
     MELEE_DEBUFF_ENEMY_ACTION(CastDisarmOnAttackerAction, "disarm");
     BUFF_ACTION(CastShieldWallAction, "shield wall");

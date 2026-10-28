@@ -311,6 +311,7 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
     DrainCommandInbox();
     DrainChatInbox();
     WriteStrategiesFile();
+    WriteDebugProbes();
 
     // LOOT WATCHDOG. Opening a corpse sets UNIT_FLAG_LOOTING, the kneel, and only
     // a loot release clears it. A bot has no client to close a loot window, so
@@ -3129,6 +3130,68 @@ void PlayerbotAI::WriteStrategiesFile()
     }
 }
 
+// WHAT SLOWS THE BOT, AND WHAT IT FIGHTS (2026-10-28). The `rooted` trigger
+// fires on a root or a slow and does not say which, or from whom. A tank's log
+// said `[rooted]` beside two mobs that can do neither. The log also named a
+// target only when a spell on it failed. With `debug` on, these lines are
+// written when the set of auras or the current target changes.
+void PlayerbotAI::WriteDebugProbes()
+{
+    Player* owner = GetMaster();
+    if (!owner || !HasStrategy("debug", BotState::BOT_STATE_NON_COMBAT))
+    {
+        debugSlowsWritten.clear();
+        debugTargetWritten = ObjectGuid();
+        debugTargetName.clear();
+        return;
+    }
+
+    std::set<std::string> slows;
+    for (AuraType type : { SPELL_AURA_MOD_ROOT, SPELL_AURA_MOD_DECREASE_SPEED })
+    {
+        for (Aura* aura : bot->GetAurasByType(type))
+        {
+            SpellEntry const* info = aura->GetSpellProto();
+            Unit* caster = GetUnit(aura->GetCasterGuid());
+            slows.insert(std::string(type == SPELL_AURA_MOD_ROOT ? "root " : "slow ") +
+                (info ? info->SpellName[0] : std::string("?")) + " " + std::to_string(aura->GetId()) +
+                " from " + (caster ? caster->GetName() : "?"));
+        }
+    }
+
+    std::string text;
+    for (const std::string& slow : slows)
+        text += (text.empty() ? "" : ", ") + slow;
+    if (text.empty())
+        text = "none";
+
+    // "none" at the start says nothing.
+    if (text != debugSlowsWritten && !(debugSlowsWritten.empty() && text == "none"))
+        TellPlayerNoFacing(owner, "slow: " + text, PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, true, false);
+    debugSlowsWritten = text;
+
+    AiObjectContext* context = GetAiObjectContext();
+    Unit* target = AI_VALUE(Unit*, "current target");
+    const ObjectGuid guid = target ? target->GetObjectGuid() : ObjectGuid();
+    if (guid == debugTargetWritten)
+        return;
+
+    std::string line = "target: " + (debugTargetName.empty() ? std::string("none") : debugTargetName) + " to ";
+    if (target)
+    {
+        char gap[32];
+        snprintf(gap, sizeof(gap), ", gap %.1f yd", bot->GetDistance(target, false, DIST_CALC_COMBAT_REACH));
+        Unit* victim = target->GetVictim();
+        line += std::string(target->GetName()) + gap + ", it attacks " + (victim ? victim->GetName() : "nobody");
+    }
+    else
+        line += "none";
+
+    TellPlayerNoFacing(owner, line, PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, true, false);
+    debugTargetWritten = guid;
+    debugTargetName = target ? target->GetName() : "";
+}
+
 bool PlayerbotAI::CanDoSpecificAction(const std::string& name, bool isUseful, bool isPossible)
 {
     for (uint8 i = 0; i < (uint8)BotState::BOT_STATE_ALL; i++)
@@ -3297,7 +3360,13 @@ void PlayerbotAI::ResetStrategies(bool autoLoad)
     AiFactory::AddDefaultNonCombatStrategies(bot, this, engines[(uint8)BotState::BOT_STATE_NON_COMBAT]);
     AiFactory::AddDefaultDeadStrategies(bot, this, engines[(uint8)BotState::BOT_STATE_DEAD]);
     AiFactory::AddDefaultReactionStrategies(bot, this, reactionEngine);
+    const bool specTank = engines[(uint8)BotState::BOT_STATE_COMBAT]->HasStrategy("tank assist");
     if (autoLoad && HasPlayerRelation()) sPlayerbotDbStore.Load(this);
+
+    // A list saved before 2026-10-28 has `dps assist` in place of a tank's
+    // `tank assist` (see AiFactory::AddDefaultCombatStrategies). Put it back.
+    if (specTank && !HasStrategy("tank assist", BotState::BOT_STATE_COMBAT))
+        ChangeStrategy("+tank assist", BotState::BOT_STATE_COMBAT);
 
     // A COMPANION LOGS IN FOLLOWING, WITH ITS OWN STRINGS (2026-10-18).
     //
@@ -4476,7 +4545,8 @@ static std::vector<std::string> WriteDebugLogLine(Player* bot, const std::string
 
 static bool IsEngineDebugLine(const std::string& text)
 {
-    return text.rfind("try: ", 0) == 0 || text.rfind("do: ", 0) == 0 || text.rfind("why: ", 0) == 0;
+    return text.rfind("try: ", 0) == 0 || text.rfind("do: ", 0) == 0 || text.rfind("why: ", 0) == 0 ||
+        text.rfind("reach: ", 0) == 0 || text.rfind("slow: ", 0) == 0 || text.rfind("target: ", 0) == 0;
 }
 
 bool PlayerbotAI::TellPlayerNoFacing(Player* player, std::string text, PlayerbotSecurityLevel securityLevel, bool isPrivate, bool noRepeat, bool ignoreSilent)

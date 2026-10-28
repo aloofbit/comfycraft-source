@@ -589,6 +589,16 @@ void AiFactory::AddDefaultCombatStrategies(Player* player, PlayerbotAI* const fa
 #endif
     }
 
+    // A TANK KEEPS TANK ASSIST (2026-10-28). Both conf strings below
+    // (CombatStrategies, RandomBotCombatStrategies) add `+dps assist`, and it is a
+    // sibling of `tank assist`, so adding it took tank assist off every tank. A
+    // protection warrior then picked targets like a dps: the mob with the least
+    // health, which is a mob running away at low health, before a mob on its
+    // owner. The spec's choice is put back after the strings. It is read again
+    // just before the random bot string, after the block below may have made a
+    // feral druid a dps.
+    bool specTank = combatEngine->HasStrategy("tank assist");
+
     if (facade->IsRealPlayer() || sRandomPlayerbotMgr.IsFreeBot(player))
 	{
         combatEngine->addStrategy("roll");
@@ -654,12 +664,16 @@ void AiFactory::AddDefaultCombatStrategies(Player* player, PlayerbotAI* const fa
         // remove threat for now
         //engine->removeStrategy("threat");
 
+        specTank = combatEngine->HasStrategy("tank assist");
         combatEngine->ChangeStrategy(sPlayerbotAIConfig.randomBotCombatStrategies);
     }
     else
     {
         combatEngine->ChangeStrategy(sPlayerbotAIConfig.combatStrategies);
     }
+
+    if (specTank)
+        combatEngine->addStrategy("tank assist");
 
     // A companion is a hire, not an alt and not population, so it gets its
     // own string on top of whichever of the two above applied. This is how

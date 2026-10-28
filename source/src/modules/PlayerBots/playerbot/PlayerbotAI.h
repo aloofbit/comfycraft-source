@@ -379,6 +379,9 @@ public:
     void SetDebugQuiet(bool on) { debugQuiet = on; }
     // A companion's strategy lists, for the website (/admin/companions).
     void WriteStrategiesFile();
+    // With `debug` on: a line when the bot's roots and slows change, and one
+    // when its current target changes.
+    void WriteDebugProbes();
     void QueueChatResponse(uint32 msgType, ObjectGuid guid1, ObjectGuid guid2, std::string message, std::string chanName, std::string name, bool noDelay = false);
 	void HandleBotOutgoingPacket(const WorldPacket& packet);
     void HandleMasterIncomingPacket(const WorldPacket& packet);
@@ -892,6 +895,9 @@ protected:
     bool debugQuiet = false;
     std::string strategiesWritten;  // what companion-logs/<name>.strategies holds
     uint32 strategiesCheckMs = 0;   // when WriteStrategiesFile last looked, 0 = never
+    std::string debugSlowsWritten;  // the last `slow:` line, so only a change is written
+    ObjectGuid debugTargetWritten;  // the target the last `target:` line named
+    std::string debugTargetName;
     time_t ownerMapAwaySince = 0; // a companion on another map than its owner, 0 = same map
     time_t underOwnerSince = 0;   // a companion fallen below its owner, 0 = not
     time_t farFromOwnerSince = 0; // a companion past CompanionTeleportDistance, 0 = not
