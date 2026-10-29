@@ -21,6 +21,7 @@
 #include "BIH.h"
 #include "VMapDefinitions.h"
 
+#include <algorithm>
 #include <set>
 #include <iomanip>
 #include <sstream>
@@ -249,6 +250,52 @@ bool TileAssembler::readMapSpawns()
 
     bool success = (ferror(dirf) == 0);
     fclose(dirf);
+
+    // A WMO goes into every tile its bounds cover (2026-10-28). The extractor lists a
+    // spawn only under the ADTs whose MODF names it, and a big WMO is not named by every
+    // ADT it lies on: Stormwind was missing from tile 31_48, and the navmesh there had no
+    // bridge and no street. Only tiles that already have a spawn get it, so no new tile
+    // file appears. One placement can come under two ids (one per ADT); it goes into a
+    // tile once. Tile x comes from the bound's y, tile y from its x.
+    for (auto& map : mapData)
+    {
+        MapSpawns* spawns = map.second;
+        auto placement = [](ModelSpawn const& s)
+        {
+            std::ostringstream key;
+            key << s.name << '|' << int(s.iPos.x * 10) << '|' << int(s.iPos.y * 10) << '|' << int(s.iPos.z * 10);
+            return key.str();
+        };
+        std::map<uint32, std::set<std::string>> present;
+        for (auto const& entry : spawns->TileEntries)
+            present[entry.first].insert(placement(spawns->UniqueEntries[entry.second]));
+
+        uint32 added = 0;
+        for (auto const& entry : spawns->UniqueEntries)
+        {
+            ModelSpawn const& spawn = entry.second;
+            if (!(spawn.flags & MOD_HAS_BOUND) || (spawn.flags & MOD_WORLDSPAWN))
+                continue;
+            std::string const key = placement(spawn);
+            int const xLo = std::max(0, int(spawn.iBound.low().y / 533.33333f));
+            int const xHi = std::min(63, int(spawn.iBound.high().y / 533.33333f));
+            int const yLo = std::max(0, int(spawn.iBound.low().x / 533.33333f));
+            int const yHi = std::min(63, int(spawn.iBound.high().x / 533.33333f));
+            for (int x = xLo; x <= xHi; ++x)
+                for (int y = yLo; y <= yHi; ++y)
+                {
+                    auto tile = present.find(StaticMapTree::packTileID(x, y));
+                    if (tile == present.end() || !tile->second.insert(key).second)
+                        continue;
+                    spawns->TileEntries.insert(pair<uint32, uint32>(tile->first, spawn.ID));
+                    printf("map %u tile %02i_%02i: added %s\n", map.first, x, y, spawn.name.c_str());
+                    ++added;
+                }
+        }
+        if (added)
+            printf("map %u: %u spawns added to tiles their bounds cover\n", map.first, added);
+    }
+
     return success;
 }
 

@@ -1,8 +1,8 @@
 /*
  * npc_house_furniture_shop -- the furniture shop with pages.
  *
- * Bound by creature_template.script_name; sql/custom/042 sets it on Furnisher
- * Adela (100028). POINT IT AT ANOTHER CREATURE AND THERE IS A SECOND TABBED
+ * Bound by creature_template.script_name; sql/custom/210 sets it on Apothecary
+ * Lenna (100042). POINT IT AT ANOTHER CREATURE AND THERE IS A SECOND TABBED
  * SHOP, with no code change at all -- which is the reason this went through
  * script_name rather than a direct call in NPCHandler like housing's critters
  * and furniture do. Those two have no choice: they use stock templates we do

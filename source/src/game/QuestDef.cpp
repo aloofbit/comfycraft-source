@@ -251,8 +251,14 @@ bool Quest::SatisfiesRaceRequirements(uint32 raceMask) const
     //
     // A quest against a creature that stays at war is open to every race too:
     // holding it is what sets the player at war (FactionlessWar.h).
+    //
+    // A quest that teaches a racial (Desperate Prayer, Starshards, Feral Spirit) keeps
+    // the stock gate, and so does its chain. Another race's racial is too strong to
+    // hand out, and the trainer keeps the higher ranks to the race anyway.
     if (sWorld.getConfig(CONFIG_BOOL_FACTIONLESS_IGNORE_QUEST_RACES))
     {
+        if (m_teachesRacial)
+            return (reqraces & raceMask) != 0;
         if (m_raceVariantMask & raceMask)
             return (reqraces & raceMask) != 0;
         if (m_raceVariantMask)

@@ -18,8 +18,8 @@
 --                           ranges and not one.
 --    creature 100026        Carpenter Bram, a plain vendor window with the
 --                           original fifteen in it.
---    creature 100028        Furnisher Adela, the same crates plus everything
---                           since, behind a menu with one page per category.
+--    creature 100028        Furnisher Adela, made here on a fresh install and
+--                           owned by 219: a dialog with a button per shop.
 --                           She supersedes Bram; he is kept because deleting
 --                           a spawned NPC is the owner's call, not this file's.
 --
@@ -39,8 +39,8 @@
 --  THE DATABASE OWNS FURNITURE NOW, AND THIS FILE IS A SEED (2026-10-08).
 --  New crates are made, renamed and repriced in the website's Workshop, at
 --  /admin/furniture, on whichever server the site runs, production included.
---  That page writes item_template, house_furniture_item and Adela's npc_vendor
---  directly. tools/furniture-list.js and tools/gen-furniture-sql.js are
+--  That page writes item_template and house_furniture_item directly, and
+--  puts the crate in the named shop you choose. tools/furniture-list.js and tools/gen-furniture-sql.js are
 --  retired; git has them.
 --
 --  So this file DELETES NO FURNITURE and every furniture INSERT is an INSERT
@@ -59,7 +59,7 @@
 --
 --  Spawn a vendor in-game as GM, standing where you want them:
 --    .npc add 100026        Carpenter Bram, flat window, the original fifteen
---    .npc add 100028        Furnisher Adela, tabbed, all sixty-four
+--    .npc add 100028        Furnisher Adela, a button per furniture shop
 -- ============================================================================
 
 SET @VENDOR := 100026;   -- 100000-100025 are taken; see CLAUDE.md
@@ -200,11 +200,13 @@ CREATE TABLE IF NOT EXISTS `house_furniture_item` (
 --
 --  The ranges live in website/lib/furniture.js now, which allocates from them.
 --
---  NO FURNITURE IS DELETED HERE (see the header). The two vendors' creature
---  rows are still owned by this file and are rewritten. Their stock is not:
---  deleting npc_vendor would wipe crates the page added to Adela, and the
---  Decorator's Chalk that 054 puts on Bram's shelf.
-DELETE FROM creature_template    WHERE entry IN (@VENDOR, @SHOP);
+--  NO FURNITURE IS DELETED HERE (see the header). Bram's creature row is
+--  still owned by this file and is rewritten. His stock is not: deleting
+--  npc_vendor would wipe the Decorator's Chalk that 054 puts on his shelf.
+--  ADELA BELONGS TO 219 since 2026-10-28, which made her a dialog in front of
+--  named shops. This file only makes her on a fresh install (INSERT IGNORE),
+--  so a re-run does not put her old script back.
+DELETE FROM creature_template    WHERE entry = @VENDOR;
 
 -- ---------------------------------------------------------------------------
 --  The stock
@@ -432,86 +434,21 @@ VALUES
   (@VENDOR, 'Carpenter Bram', 'Furnishings', 3264, 35, 4,
    60, 60, 4007, 4007, 3272, 1, 7,
    1, 1.14286, 1, 2000, 2000,
-   103.4, 129.8, 0, 3, 3, '', ''),
+   103.4, 129.8, 0, 3, 3, '', '');
+INSERT IGNORE INTO creature_template
+  (entry, name, subname, display_id1, faction, npc_flags,
+   level_min, level_max, health_min, health_max, armor, unit_class, type,
+   speed_walk, speed_run, scale, base_attack_time, ranged_attack_time,
+   dmg_min, dmg_max, movement_type, inhabit_type, regeneration, ai_name, script_name)
+VALUES
   (@SHOP, 'Furnisher Adela', 'Fine Furnishings', 3260, 35, 5,
    60, 60, 4007, 4007, 3272, 1, 7,
    1, 1.14286, 1, 2000, 2000,
    103.4, 129.8, 0, 3, 3, '', 'npc_house_furniture_shop');
 
---  maxcount 0 -> unlimited stock, so incrtime 0. Prices are buy_price above.
---
---  MAX_VENDOR_ITEMS IS 128 and it is a PROTOCOL limit, not a tuning knob - the
---  item count in SMSG_LIST_INVENTORY is one byte's worth of slots. Adela is at
---  64, so there is room for another sixty-odd pieces before a second shop NPC
---  is forced. The tabs do NOT help with this: they filter what is SENT, and
---  every tab is drawn from the one npc_vendor list below.
-INSERT IGNORE INTO npc_vendor (entry, slot, item, maxcount, incrtime) VALUES
--- the seed: Adela's stock, frozen 2026-10-08. The page adds the rest.
-  (@SHOP, 1  , 100100, 0, 0), -- Seating     Wooden Chair
-  (@SHOP, 2  , 100101, 0, 0), -- Seating     Wooden Bench
-  (@SHOP, 3  , 100102, 0, 0), -- Tables      Inn Table
-  (@SHOP, 4  , 100103, 0, 0), -- Seating     Feather Bed
-  (@SHOP, 5  , 100104, 0, 0), -- Storage     Tall Bookshelf
-  (@SHOP, 6  , 100105, 0, 0), -- Storage     Foot Locker
-  (@SHOP, 7  , 100106, 0, 0), -- Odds & Ends Iron Lantern
-  (@SHOP, 8  , 100107, 0, 0), -- Odds & Ends Stone Brazier
-  (@SHOP, 9  , 100108, 0, 0), -- Odds & Ends Bearskin Rug
-  (@SHOP, 10 , 100109, 0, 0), -- Odds & Ends Framed Painting
-  (@SHOP, 11 , 100110, 0, 0), -- Odds & Ends Stack of Books
-  (@SHOP, 12 , 100111, 0, 0), -- Odds & Ends Ale Keg
-  (@SHOP, 13 , 100112, 0, 0), -- Seating     Dwarven Bed
-  (@SHOP, 14 , 100113, 0, 0), -- Seating     Elven Bed
-  (@SHOP, 15 , 100114, 0, 0), -- Seating     Westfall Bed
-  (@SHOP, 16 , 100115, 0, 0), -- Seating     Dark Iron Chair
-  (@SHOP, 17 , 100116, 0, 0), -- Seating     Dark Iron Bench
-  (@SHOP, 18 , 100117, 0, 0), -- Seating     Dark Iron Seat
-  (@SHOP, 19 , 100118, 0, 0), -- Seating     Stone Bench
-  (@SHOP, 20 , 100119, 0, 0), -- Seating     Stormwind Bench
-  (@SHOP, 21 , 100120, 0, 0), -- Seating     Log Seat
-  (@SHOP, 22 , 100121, 0, 0), -- Seating     Westfall Stool
-  (@SHOP, 23 , 100122, 0, 0), -- Seating     Garden Bench
-  (@SHOP, 24 , 100123, 0, 0), -- Seating     Stump Seat
-  (@SHOP, 25 , 100124, 0, 0), -- Seating     Mossy Stone Seat
-  (@SHOP, 26 , 100125, 0, 0), -- Seating     Dark Iron Bed
-  (@SHOP, 27 , 100126, 0, 0), -- Seating     Gnome Bed
-  (@SHOP, 28 , 100127, 0, 0), -- Seating     Bedroll
-  (@SHOP, 29 , 100128, 0, 0), -- Seating     Packed Bedroll
-  (@SHOP, 30 , 100129, 0, 0), -- Tables      Dwarven Table
-  (@SHOP, 31 , 100130, 0, 0), -- Tables      Checkered Table
-  (@SHOP, 32 , 100131, 0, 0), -- Tables      Long Checkered Table
-  (@SHOP, 33 , 100132, 0, 0), -- Tables      Round Wooden Table
-  (@SHOP, 34 , 100133, 0, 0), -- Tables      Draped Stone Table
-  (@SHOP, 35 , 100134, 0, 0), -- Tables      Small Inn Table
-  (@SHOP, 36 , 100135, 0, 0), -- Tables      Uldaman Stone Table
-  (@SHOP, 37 , 100136, 0, 0), -- Tables      Reading Lectern
-  (@SHOP, 38 , 100137, 0, 0), -- Storage     Abbey Bookshelf
-  (@SHOP, 39 , 100138, 0, 0), -- Storage     Dwarven Shelf
-  (@SHOP, 40 , 100139, 0, 0), -- Storage     Dwarven Bookcase
-  (@SHOP, 41 , 100140, 0, 0), -- Storage     Tall Dwarven Bookshelf
-  (@SHOP, 42 , 100141, 0, 0), -- Storage     Low Dwarven Shelf
-  (@SHOP, 43 , 100142, 0, 0), -- Odds & Ends Vase of Marigolds
-  (@SHOP, 44 , 100143, 0, 0), -- Odds & Ends Flower Planter
-  (@SHOP, 45 , 100144, 0, 0), -- Odds & Ends Orange Dreamflower
-  (@SHOP, 46 , 100145, 0, 0), -- Odds & Ends Purple Dreamflower
-  (@SHOP, 47 , 100146, 0, 0), -- Odds & Ends Drooping Dreamflower
-  (@SHOP, 48 , 100147, 0, 0), -- Odds & Ends Elwynn Wildflowers
-  (@SHOP, 49 , 100148, 0, 0), -- Odds & Ends Bunch of White Flowers
-  (@SHOP, 50 , 100149, 0, 0), -- Odds & Ends Troll Stone Tablet
-  (@SHOP, 51 , 100150, 0, 0), -- Odds & Ends Eagle Statue
-  (@SHOP, 52 , 100151, 0, 0), -- Odds & Ends Uldaman Banner
-  (@SHOP, 53 , 100152, 0, 0), -- Odds & Ends Wide Blue Banner
-  (@SHOP, 54 , 100153, 0, 0), -- Odds & Ends Wide Purple Banner
-  (@SHOP, 55 , 100154, 0, 0), -- Odds & Ends Wide Red Banner
-  (@SHOP, 56 , 100155, 0, 0), -- Odds & Ends Tall Red Banner
-  (@SHOP, 57 , 100156, 0, 0), -- Odds & Ends Horde Banner
-  (@SHOP, 58 , 100157, 0, 0), -- Odds & Ends Planet Painting
-  (@SHOP, 59 , 100158, 0, 0), -- Odds & Ends Dark Forest Painting
-  (@SHOP, 60 , 100159, 0, 0), -- Odds & Ends Oval Portrait
-  (@SHOP, 61 , 100160, 0, 0), -- Odds & Ends Dalaran Landscape
-  (@SHOP, 62 , 100161, 0, 0), -- Odds & Ends Purple Rug
-  (@SHOP, 63 , 100162, 0, 0), -- Odds & Ends Small Blue Rug
-  (@SHOP, 64 , 100163, 0, 0), -- Odds & Ends Small Purple Rug
-  (@SHOP, 65 , 100164, 0, 0); -- Odds & Ends Woven Tauren Hanging
+--  Adela has no stock of her own since 219: each of her shops is a named
+--  shop filled from house_furniture_item.category. maxcount 0 is unlimited
+--  stock, so incrtime 0. Prices are buy_price above.
 
 --  Bram keeps the original fifteen and nothing else.
 INSERT IGNORE INTO npc_vendor (entry, slot, item, maxcount, incrtime) VALUES

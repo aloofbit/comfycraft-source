@@ -54,6 +54,7 @@
 #include "ComfyTitles.h"
 #include "Housing/HouseMgr.h"
 #include "ArrivalFloor.h"
+#include "Announcements.h"
 
 // config option SkipCinematics supported values
 enum CinematicsSkipMode
@@ -878,6 +879,7 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
                 {
                     pCurrChar->SendCinematicStart(rEntry->CinematicSequence);
                     showedIntroCinematic = true;
+                    Announce::IntroStarted(pCurrChar);
                 }
             }
         }

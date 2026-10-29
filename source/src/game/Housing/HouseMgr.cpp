@@ -18,6 +18,7 @@
 #include "ScriptMgr.h"
 #include "Chat.h"
 #include "Group.h"
+#include "Announcements.h"
 
 #include <algorithm>
 #include <cstring>
@@ -2862,6 +2863,7 @@ bool HouseMgr::ClaimHouseAt(Player* player, uint32 portalId, std::string& error)
     // they were not standing in. "Azeroth" is true wherever a door is put, and
     // stays true if houses ever move map again.
     ChatHandler(player).SendSysMessage("A comfy corner of Azeroth is now yours.");
+    Announce::HouseClaimed(player);
 
     // Portal Home comes with the house. Other characters on the account learn
     // it at their next login.

@@ -363,6 +363,16 @@ namespace
     std::atomic<float> s_rareDungeonRate{ 1.0f };
     std::atomic<float> s_rareEndgameRate{ 1.0f };
     std::atomic<float> s_wornGearChance{ 5.0f };
+
+    // Swapped whole by Load() while map threads roll loot: std::atomic_load
+    // and std::atomic_store, never a plain read.
+    std::shared_ptr<LootRates::ItemRateMap const> s_itemRates = std::make_shared<LootRates::ItemRateMap const>();
+
+    float ItemRateIn(LootRates::ItemRateMap const& rates, uint32 itemId)
+    {
+        auto const itr = rates.find(itemId);
+        return itr == rates.end() ? -1.0f : itr->second;
+    }
 }
 
 // The table is probed first, as loot_luck is: a SELECT on a missing table is
@@ -409,8 +419,37 @@ static bool LootRatesWornGearColumnPresent()
     return present;
 }
 
+// loot_item_rate is a table of its own (sql/custom/220), probed the same way.
+static bool LootItemRateTablePresent()
+{
+    bool present = false;
+    if (QueryResult* probe = CharacterDatabase.Query(
+            "SELECT COUNT(*) FROM information_schema.tables "
+            "WHERE table_schema = DATABASE() AND table_name = 'loot_item_rate'"))
+    {
+        present = probe->Fetch()[0].GetUInt32() > 0;
+        delete probe;
+    }
+    return present;
+}
+
 bool LootRates::Load()
 {
+    auto items = std::make_shared<ItemRateMap>();
+    if (LootItemRateTablePresent())
+    {
+        if (QueryResult* result = CharacterDatabase.Query("SELECT `item`, `rate` FROM `loot_item_rate`"))
+        {
+            do
+            {
+                Field* fields = result->Fetch();
+                (*items)[fields[0].GetUInt32()] = std::min(std::max(fields[1].GetFloat(), 0.0f), 100.0f);
+            } while (result->NextRow());
+            delete result;
+        }
+    }
+    std::atomic_store(&s_itemRates, std::shared_ptr<ItemRateMap const>(std::move(items)));
+
     float green = sConfig.GetFloatDefault("Rate.Drop.Item.UncommonGear", 1.0f);
     float dungeon = sConfig.GetFloatDefault("Rate.Drop.Item.UncommonGear.Dungeon", 1.0f);
     float rare = sConfig.GetFloatDefault("Rate.Drop.Item.RareGear", 1.0f);
@@ -461,6 +500,16 @@ bool LootRates::Load()
     s_rareEndgameRate.store(std::max(endgame, 0.0f), std::memory_order_relaxed);
     s_wornGearChance.store(std::min(std::max(worn, 0.0f), 100.0f), std::memory_order_relaxed);
     return fromTable;
+}
+
+std::shared_ptr<LootRates::ItemRateMap const> LootRates::ItemRates()
+{
+    return std::atomic_load(&s_itemRates);
+}
+
+float LootRates::ItemRate(uint32 itemId)
+{
+    return ItemRateIn(*ItemRates(), itemId);
 }
 
 float LootRates::WornGear()
@@ -745,7 +794,10 @@ bool LootStoreItem::Roll(bool rate, Player const* lootOwner) const
     ItemPrototype const *pProto = sObjectMgr.GetItemPrototype(itemid);
 
     float qualityModifier = 1.0f;
-    if (pProto && rate)
+    float const ownRate = rate ? LootRates::ItemRate(itemid) : -1.0f;
+    if (ownRate >= 0.0f)
+        qualityModifier = ownRate;                          // the item's own rate (LootRates.h)
+    else if (pProto && rate)
     {
         if (IsGreenGear(itemid))
             qualityModifier = GetGreenGearRate();
@@ -1747,18 +1799,10 @@ LootStoreItem const * LootTemplate::LootGroup::Roll(Loot const& loot, bool rate,
             GearScale(gearRate, rareRates, greenScale, rareScale);
         }
 
-        for (const auto& i : ExplicitlyChanced) //check each explicitly chanced entry in the template and modify its chance based on quality.
+        // An entry's chance with the gear rates
+        auto gearChance = [&](LootStoreItem const& i)
         {
-            if (!i.AllowedForTeam(loot))
-                continue;
-
-            if (skipQuestItems && i.needs_quest)            // rolled for each looter in LootGroup::Process
-                continue;
-
             float chance = i.chance;
-            if (chance >= 100.0f)
-                return &i;
-
             if (rate && hasGreenGear && IsGreenGear(i.itemid))
                 chance *= gearRate * greenScale;
             else if (rate && hasRareWorldGear)
@@ -1767,6 +1811,53 @@ LootStoreItem const * LootTemplate::LootGroup::Roll(Loot const& loot, bool rate,
                 if (IsRareWorldGear(proto, i.chance))
                     chance *= rareRates[IsEndgameGear(proto)] * rareScale;
             }
+            return chance;
+        };
+
+        // Items with their own rate (LootRates::ItemRate). The roll takes the
+        // entries in table order, so a boosted item would push the group's
+        // last entries out. The other entries are scaled back by one factor
+        // instead, when the group would pass 100%, or its own total when that
+        // is more. A skinning group of 100% stays at 100%.
+        std::shared_ptr<LootRates::ItemRateMap const> const ownRates = rate ? LootRates::ItemRates() : nullptr;
+        bool const anyOwnRate = ownRates && !ownRates->empty();
+        float otherScale = 1.0f;
+        if (anyOwnRate)
+        {
+            float raw = 0.0f;
+            float owned = 0.0f;
+            float other = 0.0f;
+            bool hasOwned = false;
+            for (const auto& i : ExplicitlyChanced)
+            {
+                raw += i.chance;
+                float const own = ItemRateIn(*ownRates, i.itemid);
+                if (own >= 0.0f)
+                {
+                    owned += i.chance * own;
+                    hasOwned = true;
+                }
+                else
+                    other += gearChance(i);
+            }
+            float const room = std::max(100.0f, raw);
+            if (hasOwned && other > 0.0f && owned + other > room)
+                otherScale = std::max(room - owned, 0.0f) / other;
+        }
+
+        for (const auto& i : ExplicitlyChanced) //check each explicitly chanced entry in the template and modify its chance based on quality.
+        {
+            if (!i.AllowedForTeam(loot))
+                continue;
+
+            if (skipQuestItems && i.needs_quest)            // rolled for each looter in LootGroup::Process
+                continue;
+
+            if (i.chance >= 100.0f)
+                return &i;
+
+            float const own = anyOwnRate ? ItemRateIn(*ownRates, i.itemid) : -1.0f;
+            float const chance = own >= 0.0f ? i.chance * own : gearChance(i) * otherScale;
 
             Roll -= chance * (100.0f + GetGatheringItemChanceMod(lootOwner, i.itemid)) / 100.0f;
             if (Roll < 0)
@@ -1860,7 +1951,7 @@ void LootTemplate::LootGroup::Process(Loot& loot, bool rate, Player const* lootO
 
 // A dungeon boss's group: each item rolls once at its table chance, so a kill
 // can give several items of the group, or none. The green gear rate is not
-// applied. Returns true when gear for everyone dropped: a weapon or armour of
+// applied; an item's own rate (LootRates::ItemRate) is. Returns true when gear for everyone dropped: a weapon or armour of
 // any quality, with no condition. Adds the gear the guarantee may pick to
 // `pool`. Herbs, bags, mounts and recipes roll but neither count nor go in it.
 bool LootTemplate::LootGroup::RollEach(Loot& loot, bool rate, Player const* lootOwner, std::vector<LootStoreItem const*>& pool) const
@@ -1892,8 +1983,13 @@ bool LootTemplate::LootGroup::RollEach(Loot& loot, bool rate, Player const* loot
         if (gear)
             pool.push_back(&i);
 
-        if (i.chance < 100.0f && !roll_chance_f(i.chance * (100.0f + GetGatheringItemChanceMod(lootOwner, i.itemid)) / 100.0f))
-            continue;
+        if (i.chance < 100.0f)
+        {
+            float const own = rate ? LootRates::ItemRate(i.itemid) : -1.0f;
+            float const chance = own >= 0.0f ? i.chance * own : i.chance;
+            if (!roll_chance_f(chance * (100.0f + GetGatheringItemChanceMod(lootOwner, i.itemid)) / 100.0f))
+                continue;
+        }
 
         loot.AddItem(i);
         if (gear)

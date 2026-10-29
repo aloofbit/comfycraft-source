@@ -3,9 +3,10 @@
  *
  * Carpenter Bram sells fifteen crates out of a plain vendor window and that was
  * fine at fifteen. At sixty-four it is four pages of scrolling past beds to
- * reach a rug, so Furnisher Adela (creature 100028) puts a menu in front of the
- * same stock: one row per category, each opening a vendor window holding only
- * that category.
+ * reach a rug, so a menu goes in front of the same stock: one row per
+ * category, each opening a vendor window holding only that category. Apothecary
+ * Lenna (100042) uses it. Furnisher Adela (100028) did until sql/custom/219 made
+ * her a dialog in front of named shops, because this keeps one 128-item list.
  *
  * ONE npc_vendor LIST, FILTERED ON THE WAY OUT. There is no second stock table
  * and no hidden creature per tab. WorldSession::SendListInventory takes an

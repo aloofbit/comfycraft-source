@@ -9,6 +9,7 @@
 #include "Database/DatabaseEnv.h"
 #include "Log.h"
 #include "Timer.h"
+#include "Announcements.h"
 
 #include <algorithm>
 #include <atomic>
@@ -95,6 +96,7 @@ namespace
         uint8 cls;
         uint8 level;
         bool bot;
+        bool gm;      // a GM account at entry: left out of a record announcement, as the board leaves it out
     };
 
     // Random bots and companions run on RNDBOT and COMPANION accounts, the
@@ -307,7 +309,8 @@ void DungeonRun::OnPlayerEnter(DungeonMap* map, Player* player)
             for (Member const& m : run.members)
                 known = known || m.guid == player->GetGUIDLow();
             if (!known)
-                run.members.push_back({ player->GetGUIDLow(), player->GetName(), player->GetClass(), uint8(player->GetLevel()), IsBot(player) });
+                run.members.push_back({ player->GetGUIDLow(), player->GetName(), player->GetClass(), uint8(player->GetLevel()), IsBot(player),
+                    player->GetSession() && player->GetSession()->GetSecurity() > SEC_PLAYER });
             run.maxLevel = std::max<uint8>(run.maxLevel, player->GetLevel());
         }
     }
@@ -331,6 +334,7 @@ void DungeonRun::OnCreatureKilled(Creature* creature)
         return;
 
     std::string killLine, clearLine;
+    AnnounceDungeonClear clear;
     {
         std::lock_guard<std::mutex> guard(S().lock);
         auto it = S().runs.find(Key(map->GetId(), map->GetInstanceId()));
@@ -394,6 +398,25 @@ void DungeonRun::OnCreatureKilled(Creature* creature)
             if ((lastNow ? run.lastMaxLevel : run.maxLevel) > run.bossLevel)
                 clearLine += " Not ranked: a member was above level " + std::to_string(run.bossLevel) + ".";
             Save(map->GetId(), run, lastNow ? ms : 0, fullNow ? ms : 0);
+
+            // A record is checked for ranked times only (Announcements.h).
+            clear.runId = run.id;
+            clear.mapId = map->GetId();
+            clear.wing = run.wing;
+            clear.dungeon = name;
+            if (lastNow && run.lastMaxLevel <= run.bossLevel)
+            {
+                clear.lastMs = ms;
+                clear.lastClock = Clock(ms);
+            }
+            if (fullNow && run.maxLevel <= run.bossLevel)
+            {
+                clear.fullMs = ms;
+                clear.fullClock = Clock(ms);
+            }
+            for (Member const& m : run.members)
+                if (!m.bot && !m.gm)
+                    clear.players.push_back({ m.name, m.cls });
             sLog.outString("Dungeon run: %s: %s in %s, group of %u (run %u, instance %u).",
                 name.c_str(), what, Clock(ms).c_str(), uint32(run.members.size()), run.id, map->GetInstanceId());
         }
@@ -401,7 +424,10 @@ void DungeonRun::OnCreatureKilled(Creature* creature)
 
     Broadcast(map, killLine);
     if (!clearLine.empty())
+    {
         Broadcast(map, clearLine);
+        Announce::DungeonCleared(std::move(clear));
+    }
 }
 
 void DungeonRun::OnInstanceGone(uint32 mapId, uint32 instanceId)

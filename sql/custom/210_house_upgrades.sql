@@ -476,15 +476,10 @@ UPDATE `house_furniture_item` SET `category` = CASE
  WHERE `item_entry` BETWEEN 100201 AND 100286;
 
 -- ---------------------------------------------------------------- the shops
--- Furnisher Adela (100028) sells the mailboxes, the repair table,
--- Refreshments and the Junk Compactor, after her other stock. The fortunes
--- moved to the potion seller.
-
-DELETE FROM `npc_vendor` WHERE `entry` = 100028 AND `item` BETWEEN 100203 AND 100210;
-SET @slot = (SELECT COALESCE(MAX(`slot`), 0) FROM `npc_vendor` WHERE `entry` = 100028);
-INSERT IGNORE INTO `npc_vendor` (`entry`, `slot`, `item`, `maxcount`, `incrtime`)
-  SELECT 100028, @slot + (`entry` - 100200), `entry`, 0, 0 FROM comfy_upgrade
-   WHERE `entry` NOT BETWEEN 100203 AND 100210 AND `entry` NOT BETWEEN 100223 AND 100280;
+-- The mailboxes, the repair table, Refreshments and the Junk Compactor are
+-- sold by Furnisher Adela, through the named shops "Mailboxes" and "House
+-- Upgrades" that 219 fills from the categories above. The fortunes moved to
+-- the potion seller.
 
 -- The Reagents object's vendor (100043): a copy of Adela's template, made
 -- invisible (model 11686, the trigger model), vendor only, named for the
@@ -494,7 +489,7 @@ DELETE FROM `creature_template` WHERE `entry` = 100043;
 CREATE TEMPORARY TABLE comfy_shopkeeper AS SELECT * FROM `creature_template` WHERE `entry` = 100028;
 UPDATE comfy_shopkeeper SET `entry` = 100043, `name` = 'Reagents', `subname` = '',
                             `display_id1` = 11686, `display_id2` = 0, `display_id3` = 0, `display_id4` = 0,
-                            `npc_flags` = 4, `script_name` = '';
+                            `npc_flags` = 4, `script_name` = '', `gossip_menu_id` = 0, `vendor_id` = 0;
 INSERT INTO `creature_template` SELECT * FROM comfy_shopkeeper;
 DROP TEMPORARY TABLE comfy_shopkeeper;
 
@@ -574,7 +569,9 @@ INSERT INTO `npc_vendor` (`entry`, `slot`, `item`, `maxcount`, `incrtime`) VALUE
 DELETE FROM `creature_template` WHERE `entry` = 100042;
 CREATE TEMPORARY TABLE comfy_seller AS SELECT * FROM `creature_template` WHERE `entry` = 100028;
 UPDATE comfy_seller SET `entry` = 100042, `name` = 'Apothecary Lenna', `subname` = 'Scrolls & Flasks',
-                        `display_id1` = 3237, `display_id2` = 0, `display_id3` = 0, `display_id4` = 0;
+                        `display_id1` = 3237, `display_id2` = 0, `display_id3` = 0, `display_id4` = 0,
+                        `npc_flags` = 5, `script_name` = 'npc_house_furniture_shop',
+                        `gossip_menu_id` = 0, `vendor_id` = 0;
 INSERT INTO `creature_template` SELECT * FROM comfy_seller;
 DROP TEMPORARY TABLE comfy_seller;
 

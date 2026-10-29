@@ -2376,6 +2376,8 @@ void LoadPlayerEggLoot();
     sLog.outString("Loading loot rates...");
     if (!LootRates::Load())
         sLog.outString(">> Loot rates: from mangosd.conf (`loot_rates` is missing; apply sql/custom/183_loot_rates.sql).");
+    if (size_t const own = LootRates::ItemRates()->size())
+        sLog.outString(">> Loot rates: own rate on %u items.", uint32(own));
     sLog.outString("Loading dungeon run tables...");
     DungeonRun::Load();
     sLog.outString("Loading creature movement scripts...");

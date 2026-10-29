@@ -2775,8 +2775,9 @@ void PlayerbotAI::DoNextAction(bool min)
     // path ends inside the trigger zone. A companion that came later (it logged
     // in after the owner went in, or it was on stay) walked to the portal,
     // stopped a few yards short of the zone and ran `follow` there forever. After
-    // 5 s apart, alive and out of combat, it teleports to the owner, as Summon
-    // does. A companion on stay or guard is left where it was put.
+    // 5 s apart, alive, it teleports to the owner, as Summon does. A fight does
+    // not hold it (see the far rule below). A companion on stay or guard is left
+    // where it was put.
     if (master && CompanionOwnership::IsCompanion(bot->GetGUIDLow()))
     {
         // A COMPANION'S PET IS ALWAYS PASSIVE. It goes in only when the companion
@@ -2789,7 +2790,7 @@ void PlayerbotAI::DoNextAction(bool min)
 
         const bool apart = master->IsInWorld() && !master->IsBeingTeleported() && !bot->IsBeingTeleported() &&
             bot->GetMapId() != master->GetMapId() && sServerFacade.IsAlive(master) && sServerFacade.IsAlive(bot) &&
-            !sServerFacade.IsInCombat(bot) && !master->IsTaxiFlying() && !bot->IsTaxiFlying() &&
+            !master->IsTaxiFlying() && !bot->IsTaxiFlying() &&
             !master->InBattleGround() && !HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT) &&
             !HasStrategy("guard", BotState::BOT_STATE_NON_COMBAT);
 
@@ -2884,11 +2885,19 @@ void PlayerbotAI::DoNextAction(bool min)
         // past AiPlayerbot.CompanionTeleportDistance (100 yd) for 1 s, it stops and
         // teleports to the owner. A path that long is a detour: in a Dun Morogh
         // tunnel with no navmesh at its exit, a companion ran 427 yd back round the
-        // mountain. Not in combat, on a flight path, on a transport, on stay or
-        // guard, or in a battleground.
+        // mountain. Not with the owner in combat, on a flight path, on a transport,
+        // on stay or guard, or in a battleground.
+        //
+        // FETCHED OUT OF A FIGHT, WITH NO RUN FIRST (2026-10-28, the owner's request).
+        // After a hearthstone, follow sent the companion on a long run toward the
+        // owner, a mob caught it, and the fight held it there: neither teleport fired
+        // with the companion in combat, and Summon refuses in combat. Now the
+        // companion's own fight does not hold it, and the teleport drops that fight
+        // (the mobs evade). On the same map it stops at once and runs no action until
+        // the teleport. It whispers "I'll catch up" when a teleport is on its way.
         const bool tooFar = master->IsInWorld() && !master->IsBeingTeleported() && !bot->IsBeingTeleported() &&
             bot->GetMapId() == master->GetMapId() && sServerFacade.IsAlive(master) && sServerFacade.IsAlive(bot) &&
-            !sServerFacade.IsInCombat(bot) && !sServerFacade.IsInCombat(master) &&
+            !sServerFacade.IsInCombat(master) &&
             !master->IsTaxiFlying() && !bot->IsTaxiFlying() && !master->GetTransport() && !bot->GetTransport() &&
             !master->InBattleGround() && !HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT) &&
             !HasStrategy("guard", BotState::BOT_STATE_NON_COMBAT) &&
@@ -2902,28 +2911,34 @@ void PlayerbotAI::DoNextAction(bool min)
             farFromOwnerSince = 0;
             farStopSentMs = 0;
         }
-        else if (!farFromOwnerSince)
-            farFromOwnerSince = now;
-        else if (now - farFromOwnerSince >= 1)
+        else
         {
-            if (!farStopSentMs)
+            if (!farFromOwnerSince)
             {
+                farFromOwnerSince = now;
                 StopMoving();
                 farStopSentMs = WorldTimer::getMSTime() | 1;
-                SetAIInternalUpdateDelay(500);
+                TellPlayerNoFacing(master, "I'll catch up", PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, true, false, true);
+            }
+            if (now - farFromOwnerSince < 1 || WorldTimer::getMSTimeDiff(farStopSentMs, WorldTimer::getMSTime()) < 400)
+            {
+                SetAIInternalUpdateDelay(250);
                 return;
             }
-            if (WorldTimer::getMSTimeDiff(farStopSentMs, WorldTimer::getMSTime()) < 400)
-                return;
 
             farFromOwnerSince = 0;
             farStopSentMs = 0;
-            sLog.outString("Companion %s: %.0f yd from its owner, teleported to it", bot->GetName(),
-                sServerFacade.GetDistance2d(bot, master));
-            bot->NearTeleportTo(master->GetPositionX(), master->GetPositionY(), master->GetPositionZ(), master->GetOrientation());
+            sLog.outString("Companion %s: %.0f yd from its owner%s, teleported to it", bot->GetName(),
+                sServerFacade.GetDistance2d(bot, master), sServerFacade.IsInCombat(bot) ? ", left its fight" : "");
+            bot->CombatStopWithPets(true);
+            bot->GetHostileRefManager().deleteReferences();
+            bot->NearTeleportTo(master->GetPositionX(), master->GetPositionY(), master->GetPositionZ(), master->GetOrientation(),
+                uint32(TELE_TO_NOT_LEAVE_TRANSPORT | TELE_TO_NOT_UNSUMMON_PET));
             return;
         }
 
+        // On another map the companion keeps its actions for 5 s, so one that was
+        // right behind its owner still walks through the portal itself.
         if (!apart)
             ownerMapAwaySince = 0;
         else if (!ownerMapAwaySince)
@@ -2931,7 +2946,11 @@ void PlayerbotAI::DoNextAction(bool min)
         else if (now - ownerMapAwaySince >= 5)
         {
             ownerMapAwaySince = 0;
+            TellPlayerNoFacing(master, "I'll catch up", PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, true, false, true);
+            sLog.outString("Companion %s: its owner is on map %u%s, teleported to it", bot->GetName(), master->GetMapId(),
+                sServerFacade.IsInCombat(bot) ? ", left its fight" : "");
             StopMoving();
+            bot->CombatStopWithPets(true);
             bot->TeleportTo(master->GetMapId(), master->GetPositionX(), master->GetPositionY(), master->GetPositionZ(), master->GetOrientation());
             return;
         }

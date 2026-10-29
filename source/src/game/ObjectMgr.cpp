@@ -5705,6 +5705,30 @@ void ObjectMgr::LoadGuildHouses()
     } while (result->NextRow());
 }
 
+// Creature guids that sql/custom writes by number: 2949000-2949099 the SQL quest
+// fixes, 2950000-2950099 the group trainers (116), 2950100-2950102 Farstrider
+// Lodge (157). 116 deletes its whole range on every run, so a spawn from
+// .npc add that lands in one is lost at the next deploy.
+static uint32 const ReservedCreatureGuids[][2] =
+{
+    { 2949000, 2949099 },
+    { 2950000, 2950102 },
+};
+
+uint32 ObjectMgr::GenerateStaticCreatureLowGuid()
+{
+    for (auto const& range : ReservedCreatureGuids)
+    {
+        uint32 next = m_StaticCreatureGuids.GetNextAfterMaxUsed();
+        if (next >= range[0] && next <= range[1])
+            m_StaticCreatureGuids.Set(range[1] + 1);
+    }
+
+    if (m_StaticCreatureGuids.GetNextAfterMaxUsed() >= m_FirstTemporaryCreatureGuid)
+        return 0;
+    return m_StaticCreatureGuids.Generate();
+}
+
 void ObjectMgr::SetHighestGuids()
 {
     std::unique_ptr<QueryResult> result(CharacterDatabase.Query("SELECT MAX(`guid`) FROM `characters`"));
@@ -6812,6 +6836,49 @@ void ObjectMgr::LoadQuestRaceVariants()
     {
         itr.second->m_raceVariantMask = 0;
         itr.second->m_raceVariantFallback = false;
+        itr.second->m_teachesRacial = false;
+    }
+
+    // A racial is a spell whose skill_line_ability row carries a race mask. The reward
+    // spell is often a teaching spell (effect 36), so its taught spell counts too.
+    auto isRacial = [](uint32 spellId)
+    {
+        SkillLineAbilityMapBounds bounds = sSpellMgr.GetSkillLineAbilityMapBoundsBySpellId(spellId);
+        for (auto itr = bounds.first; itr != bounds.second; ++itr)
+            if (itr->second->racemask)
+                return true;
+        return false;
+    };
+    auto teachesRacial = [&](uint32 spellId)
+    {
+        if (!spellId)
+            return false;
+        if (isRacial(spellId))
+            return true;
+        SpellEntry const* spell = sSpellMgr.GetSpellEntry(spellId);
+        if (!spell)
+            return false;
+        for (int i = 0; i < MAX_EFFECT_INDEX; ++i)
+            if (spell->Effect[i] == SPELL_EFFECT_LEARN_SPELL && isRacial(spell->EffectTriggerSpell[i]))
+                return true;
+        return false;
+    };
+
+    // The race-gated quests before it in its chain keep the gate too, so a race cannot
+    // walk four steps of the Spiritwolf chain and find the fifth closed.
+    uint32 racial = 0;
+    for (auto const& itr : m_QuestTemplatesMap)
+    {
+        Quest* quest = itr.second.get();
+        if (!teachesRacial(quest->GetRewSpellCast()) && !teachesRacial(quest->GetRewSpell()))
+            continue;
+        while (quest && quest->RequiredRaces && !quest->m_teachesRacial)
+        {
+            quest->m_teachesRacial = true;
+            ++racial;
+            auto prev = m_QuestTemplatesMap.find(uint32(std::abs(quest->GetPrevQuestId())));
+            quest = prev != m_QuestTemplatesMap.end() ? prev->second.get() : nullptr;
+        }
     }
 
     uint32 grouped = 0;
@@ -6861,7 +6928,7 @@ void ObjectMgr::LoadQuestRaceVariants()
 
     // Three callers run this at start-up; only the last one has every relation.
     if (!m_CreatureQuestRelations.empty())
-        sLog.outString(">> %u class quests are race variants of one another", grouped);
+        sLog.outString(">> %u class quests are race variants of one another, %u keep their race for a racial", grouped, racial);
 }
 
 void ObjectMgr::LoadCreatureInvolvedRelations()

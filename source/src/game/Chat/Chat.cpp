@@ -2461,6 +2461,11 @@ void ChatHandler::BuildChatPacket(WorldPacket& data, ChatMsg msgtype, const std:
     else
         messageFinal = message;
 
+    // ComfyCraft: with cross-faction chat on, Common and Orcish are sent as Universal. The
+    // player path does this in HandleMessagechatOpcode; this covers NPC and script speech.
+    if ((language == LANG_COMMON || language == LANG_ORCISH) && sWorld.getConfig(CONFIG_BOOL_ALLOW_TWO_SIDE_INTERACTION_CHAT))
+        language = LANG_UNIVERSAL;
+
     data.Initialize(SMSG_MESSAGECHAT);
     data << uint8(msgtype);
     data << uint32(language);

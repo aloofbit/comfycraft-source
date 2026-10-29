@@ -4194,9 +4194,10 @@ bool ComfyCommands::HandleLootLuckCommand(ChatHandler* handler, char* args)
 bool ComfyCommands::HandleLootRatesCommand(ChatHandler* handler, char* /*args*/)
 {
     bool const fromTable = LootRates::Load();
-    handler->PSendSysMessage("Loot rates (%s): green gear x%g, in dungeons x%g; BoE blues x%g, in dungeons x%g, from level 50 x%g; worn gear %g%%.",
+    handler->PSendSysMessage("Loot rates (%s): green gear x%g, in dungeons x%g; BoE blues x%g, in dungeons x%g, from level 50 x%g; worn gear %g%%; own rate on %u items.",
         fromTable ? "loot_rates" : "mangosd.conf", LootRates::Green(false), LootRates::Green(true),
-        LootRates::Rare(false, false), LootRates::Rare(false, true), LootRates::Rare(true, false), LootRates::WornGear());
+        LootRates::Rare(false, false), LootRates::Rare(false, true), LootRates::Rare(true, false), LootRates::WornGear(),
+        uint32(LootRates::ItemRates()->size()));
     return true;
 }
 

@@ -53,6 +53,8 @@
 #include "GossipDef.h"
 #include "Housing/HouseMgr.h"   // HOUSE_MAP_ID, for auto-tagging a report filed in a house
 #include "BotNpc.h"             // bot NPCs are left out of /who
+#include "Announcements.h"
+#include "DungeonRun.h"
 
 #include <map>                 // the bug-report cooldown table
 #include <mutex>
@@ -1389,6 +1391,299 @@ void WorldSession::HandleCompleteCinematic(WorldPacket & /*recv_data*/)
 {
     DEBUG_LOG("WORLD: Player is watching cinema");
     GetPlayer()->CinematicEnd();
+    Announce::CinematicEnded(GetPlayer());
+}
+
+// The new character welcome and the level announcements
+// (Objects/Announcements.h).
+namespace
+{
+    // Characters whose intro is playing, by low guid, with the time it
+    // started. A player who logs out during the intro leaves a row; the age
+    // limit stops a later camera cinematic from counting as the intro.
+    std::mutex s_welcomeMutex;
+    std::unordered_map<uint32, time_t> s_welcomePending;
+    time_t const WELCOME_INTRO_MAX_SECONDS = 15 * MINUTE;
+
+    // `names` is a quoted, comma-separated list of `count` tables.
+    bool AnnounceTablesPresent(char const* names, uint32 count)
+    {
+        bool present = false;
+        if (QueryResult* probe = CharacterDatabase.PQuery(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() "
+                "AND table_name IN (%s)", names))
+        {
+            present = probe->Fetch()[0].GetUInt32() == count;
+            delete probe;
+        }
+        return present;
+    }
+
+    // Bots are left out, and so is a GM in GM mode (.gm on). A GM with GM
+    // mode off is announced, so one client can test with .modify xp.
+    bool AnnounceEligible(Player* player)
+    {
+        return !Script_IsAIControlled(player) && !player->IsGameMaster();
+    }
+
+    // RAID_CLASS_COLORS, with the blue shaman players know.
+    char const* AnnounceClassColor(uint8 classId)
+    {
+        switch (classId)
+        {
+            case CLASS_WARRIOR: return "ffc79c6e";
+            case CLASS_PALADIN: return "fff58cba";
+            case CLASS_HUNTER:  return "ffabd473";
+            case CLASS_ROGUE:   return "fffff569";
+            case CLASS_PRIEST:  return "ffffffff";
+            case CLASS_SHAMAN:  return "ff0070de";
+            case CLASS_MAGE:    return "ff69ccf0";
+            case CLASS_WARLOCK: return "ff9482c9";
+            case CLASS_DRUID:   return "ffff7d0a";
+            default:            return "ffffffff";
+        }
+    }
+
+    void AnnounceReplace(std::string& text, std::string const& token, std::string const& with)
+    {
+        for (size_t at = text.find(token); at != std::string::npos; at = text.find(token, at + with.size()))
+            text.replace(at, token.size(), with);
+    }
+
+    // A link that opens a whisper, in the class colour.
+    std::string AnnouncePlayerLink(std::string const& name, uint8 classId)
+    {
+        return std::string("|c") + AnnounceClassColor(classId)
+            + "|Hplayer:" + name + "|h[" + name + "]|h|r";
+    }
+
+    // {name} becomes the link, {level} the level.
+    void AnnounceSend(std::string text, std::string const& name, uint8 classId, uint32 level)
+    {
+        AnnounceReplace(text, "{name}", AnnouncePlayerLink(name, classId));
+        AnnounceReplace(text, "{level}", std::to_string(level));
+        sWorld.SendGlobalText(text.c_str(), nullptr);
+    }
+
+    // One message of `kind` from announce_message (219), when the switch of
+    // `setting` is on. Empty when off, missing or without a message.
+    std::string AnnouncePick(char const* setting, char const* kind)
+    {
+        std::string text;
+        if (!AnnounceTablesPresent("'announce_setting', 'announce_message'", 2))
+            return text;
+        if (QueryResult* result = CharacterDatabase.PQuery(
+                "SELECT m.`text` FROM `announce_message` m "
+                "JOIN `announce_setting` s ON s.`kind` = '%s' AND s.`enabled` = 1 "
+                "WHERE m.`kind` = '%s' ORDER BY RAND() LIMIT 1", setting, kind))
+        {
+            text = result->Fetch()[0].GetCppString();
+            delete result;
+        }
+        return text;
+    }
+
+    // The tasks below run as world async tasks: those threads have their own
+    // database connections and may read the session list.
+    void WelcomeAnnounce(uint32 accountId, uint32 guidLow, std::string name, uint8 classId)
+    {
+        if (!AnnounceTablesPresent("'welcome_setting', 'welcome_message', 'welcome_account'", 3))
+            return;
+
+        if (QueryResult* seen = CharacterDatabase.PQuery(
+                "SELECT 1 FROM `welcome_account` WHERE `account` = %u", accountId))
+        {
+            delete seen;
+            return;
+        }
+
+        // The account is spent with the switch off too, so turning it on
+        // later does not announce someone's fourth character.
+        std::string escaped = name;
+        CharacterDatabase.escape_string(escaped);
+        CharacterDatabase.DirectPExecute(
+            "INSERT IGNORE INTO `welcome_account` (`account`, `guid`, `name`, `welcomed_at`) VALUES (%u, %u, '%s', NOW())",
+            accountId, guidLow, escaped.c_str());
+
+        std::string text;
+        if (QueryResult* result = CharacterDatabase.Query(
+                "SELECT m.`text` FROM `welcome_message` m "
+                "JOIN `welcome_setting` s ON s.`id` = 1 AND s.`enabled` = 1 "
+                "ORDER BY RAND() LIMIT 1"))
+        {
+            text = result->Fetch()[0].GetCppString();
+            delete result;
+        }
+        if (!text.empty())
+            AnnounceSend(text, name, classId, 1);
+    }
+
+    void LevelAnnounce(std::string name, uint8 classId, uint32 level)
+    {
+        if (!AnnounceTablesPresent("'level_announce_setting', 'level_announce'", 2))
+            return;
+
+        std::string text;
+        if (QueryResult* result = CharacterDatabase.PQuery(
+                "SELECT a.`text` FROM `level_announce` a "
+                "JOIN `level_announce_setting` s ON s.`id` = 1 AND s.`enabled` = 1 "
+                "WHERE a.`level` = %u ORDER BY RAND() LIMIT 1", level))
+        {
+            text = result->Fetch()[0].GetCppString();
+            delete result;
+        }
+        if (!text.empty())
+            AnnounceSend(text, name, classId, level);
+    }
+
+    // The best ranked time before this run, as the /charts board ranks it: the
+    // level rule, and at least one member who is not a bot, not on a GM
+    // account and not deleted. The board also leaves out a player who
+    // unticked "List my characters in the Armory"; tw_web is not read here.
+    // False when there is none.
+    bool DungeonBest(AnnounceDungeonClear const& clear, bool full, std::string const& gmAccounts, uint32& best)
+    {
+        char const* const ms = full ? "full_ms" : "last_boss_ms";
+        char const* const level = full ? "max_level" : "last_max_level";
+        bool found = false;
+        if (QueryResult* result = CharacterDatabase.PQuery(
+                "SELECT MIN(r.`%s`) FROM `dungeon_run` r "
+                "WHERE r.`map` = %u AND r.`wing` = %u AND r.`id` <> %u "
+                "AND r.`%s` IS NOT NULL AND r.`%s` <= r.`boss_level` "
+                "AND EXISTS (SELECT 1 FROM `dungeon_run_member` m JOIN `characters` c ON c.`guid` = m.`guid` "
+                "WHERE m.`run_id` = r.`id` AND m.`is_bot` = 0 AND c.`account` NOT IN (%s) "
+                "AND (c.`deleteDate` IS NULL OR c.`deleteDate` = 0))",
+                ms, clear.mapId, uint32(clear.wing), clear.runId, ms, level, gmAccounts.c_str()))
+        {
+            if (!result->Fetch()[0].IsNULL())
+            {
+                best = result->Fetch()[0].GetUInt32();
+                found = true;
+            }
+            delete result;
+        }
+        return found;
+    }
+
+    void DungeonRecordAnnounce(AnnounceDungeonClear const& clear)
+    {
+        // GM accounts, for the board's rank 0 rule. tw_logon is its own
+        // connection, so the ids go into the tw_char query as a list.
+        std::string const gm = [] {
+            std::string ids = "0";
+            if (QueryResult* result = LoginDatabase.Query("SELECT id FROM account WHERE `rank` > 0"))
+            {
+                do
+                    ids += "," + std::to_string(result->Fetch()[0].GetUInt32());
+                while (result->NextRow());
+                delete result;
+            }
+            return ids;
+        }();
+
+        // The full run's message wins when one kill sets both records.
+        uint32 best = 0;
+        bool const fullRecord = clear.fullMs && (!DungeonBest(clear, true, gm, best) || clear.fullMs < best);
+        bool const lastRecord = !fullRecord && clear.lastMs && (!DungeonBest(clear, false, gm, best) || clear.lastMs < best);
+        if (!fullRecord && !lastRecord)
+            return;
+
+        std::string text = AnnouncePick("dungeon_record", fullRecord ? "dungeon_full" : "dungeon_last");
+        if (text.empty())
+            return;
+
+        // "A", "A and B", "A, B and C".
+        std::string group;
+        for (size_t i = 0; i < clear.players.size(); ++i)
+        {
+            if (i)
+                group += i + 1 == clear.players.size() ? " and " : ", ";
+            group += AnnouncePlayerLink(clear.players[i].name, clear.players[i].cls);
+        }
+        AnnounceReplace(text, "{group}", group);
+        AnnounceReplace(text, "{dungeon}", clear.dungeon);
+        AnnounceReplace(text, "{time}", fullRecord ? clear.fullClock : clear.lastClock);
+        sWorld.SendGlobalText(text.c_str(), nullptr);
+    }
+
+    void HouseAnnounce(std::string name, uint8 classId, std::string zone)
+    {
+        std::string text = AnnouncePick("housewarming", "housewarming");
+        if (text.empty())
+            return;
+        AnnounceReplace(text, "{zone}", zone);
+        AnnounceSend(text, name, classId, 0);
+    }
+}
+
+void Announce::IntroStarted(Player* player)
+{
+    std::lock_guard<std::mutex> lock(s_welcomeMutex);
+    s_welcomePending[player->GetGUIDLow()] = time(nullptr);
+}
+
+void Announce::CinematicEnded(Player* player)
+{
+    {
+        std::lock_guard<std::mutex> lock(s_welcomeMutex);
+        auto itr = s_welcomePending.find(player->GetGUIDLow());
+        if (itr == s_welcomePending.end())
+            return;
+        bool const intro = time(nullptr) - itr->second < WELCOME_INTRO_MAX_SECONDS;
+        s_welcomePending.erase(itr);
+        if (!intro)
+            return;
+    }
+
+    uint32 const accountId = player->GetSession()->GetAccountId();
+    uint32 const guidLow = player->GetGUIDLow();
+    std::string const name = player->GetName();
+    uint8 const classId = player->GetClass();
+    sWorld.AddAsyncTask([accountId, guidLow, name, classId]()
+    {
+        WelcomeAnnounce(accountId, guidLow, name, classId);
+    });
+}
+
+void Announce::LevelReached(Player* player)
+{
+    if (!AnnounceEligible(player))
+        return;
+
+    std::string const name = player->GetName();
+    uint8 const classId = player->GetClass();
+    uint32 const level = player->GetLevel();
+    sWorld.AddAsyncTask([name, classId, level]()
+    {
+        LevelAnnounce(name, classId, level);
+    });
+}
+
+void Announce::DungeonCleared(AnnounceDungeonClear clear)
+{
+    if ((!clear.lastMs && !clear.fullMs) || clear.players.empty() || !DungeonRun::TablesPresent())
+        return;
+    sWorld.AddAsyncTask([clear]()
+    {
+        DungeonRecordAnnounce(clear);
+    });
+}
+
+void Announce::HouseClaimed(Player* player)
+{
+    if (!AnnounceEligible(player))
+        return;
+
+    std::string const name = player->GetName();
+    uint8 const classId = player->GetClass();
+    std::string zone;
+    if (AreaEntry const* area = AreaEntry::GetById(player->GetZoneId()))
+        if (area->Name)
+            zone = area->Name;
+    sWorld.AddAsyncTask([name, classId, zone]()
+    {
+        HouseAnnounce(name, classId, zone);
+    });
 }
 
 void WorldSession::HandleNextCinematicCamera(WorldPacket & /*recv_data*/)

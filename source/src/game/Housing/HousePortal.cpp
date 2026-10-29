@@ -496,8 +496,10 @@ void HouseMgr::EvictLapsedVisitors(Map* map)
     if (!m_enabled || !map)
         return;
 
+    // A template has no owner and no party to lapse. Only `.house template`
+    // commands put anybody in one, and they are developer only.
     House* house = GetHouseByInstance(map->GetInstanceId());
-    if (!house)
+    if (!house || house->authorsTemplate)
         return;
 
     // COLLECTED FIRST, ACTED ON AFTER. TeleportTo removes the player from this
@@ -2197,6 +2199,15 @@ namespace
     // this and offers "More", so a long page can never break.
     uint32 const MENU_BUDGET = 440;
 
+    // "Walk through portals: off". On the main page and the guest page, not
+    // under Settings: it decides how you leave, so it sits beside Leave.
+    void AddWalkInRow(Player* player, GossipMenu& menu)
+    {
+        std::string const label = std::string(HouseMgr::SettingTitle(HOUSE_SETTING_WALK_IN)) + ": " +
+                                  HouseMgr::SettingLabel(HOUSE_SETTING_WALK_IN, sHouseMgr.GetSetting(player, HOUSE_SETTING_WALK_IN));
+        menu.AddMenuItem(HOUSE_GOSSIP_ICON, label.c_str(), HOUSE_CONTROL_SENDER, ACT_CTL_SETTING_0 + HOUSE_SETTING_WALK_IN);
+    }
+
     void SendControlMain(Player* player, GameObject* go)
     {
         GossipMenu& menu = player->PlayerTalkClass->GetGossipMenu();
@@ -2226,6 +2237,7 @@ namespace
         // way out that appears only in the state you cannot leave from is one
         // conditional away from being no way out at all.
         menu.AddMenuItem(HOUSE_GOSSIP_ICON, "Leave Home",           HOUSE_CONTROL_SENDER, ACT_CTL_LEAVE);
+        AddWalkInRow(player, menu);
         menu.AddMenuItem(HOUSE_GOSSIP_ICON, " ",                    HOUSE_CONTROL_SENDER, ACT_CTL_BACK);
 
         menu.AddMenuItem(HOUSE_GOSSIP_ICON,
@@ -2263,6 +2275,23 @@ namespace
         player->PlayerTalkClass->SendGossipMenu(HOUSE_CONTROL_TEXT, go->GetObjectGuid());
     }
 
+    // A GUEST'S PAGE: the way out and the walk-through setting. Every other
+    // row changes the host's house. The way out must be here because a guest
+    // with walk_through_portals off has no other way to leave. The setting is
+    // per account, so it changes nothing of the host's.
+    void SendControlGuest(Player* player, GameObject* go)
+    {
+        GossipMenu& menu = player->PlayerTalkClass->GetGossipMenu();
+        player->PlayerTalkClass->ClearMenus();
+
+        menu.AddMenuItem(HOUSE_GOSSIP_ICON, "Leave",    HOUSE_CONTROL_SENDER, ACT_CTL_LEAVE);
+        AddWalkInRow(player, menu);
+        menu.AddMenuItem(HOUSE_GOSSIP_ICON, " ",        HOUSE_CONTROL_SENDER, ACT_CTL_BACK);
+        menu.AddMenuItem(HOUSE_GOSSIP_ICON, "Close",    HOUSE_CONTROL_SENDER, ACT_CTL_CLOSE);
+
+        player->PlayerTalkClass->SendGossipMenu(HOUSE_CONTROL_TEXT, go->GetObjectGuid());
+    }
+
     // THE SETTINGS PAGE. Every row carries its own state, so the page is the
     // answer to "how is this set up" as well as the way to change it -- the
     // same rule the edit-mode row above follows, and the reason clicking one
@@ -2293,9 +2322,10 @@ namespace
             if (HouseMgr::SettingIsGlobal(s))
                 continue;
 
-            // The lock has its own row on the main page, and one control in
-            // two places is two labels that can disagree about the state.
-            if (s == HOUSE_SETTING_LOCKED)
+            // The lock and the walk-through have their own rows on the main
+            // page, and one control in two places is two labels that can
+            // disagree about the state.
+            if (s == HOUSE_SETTING_LOCKED || s == HOUSE_SETTING_WALK_IN)
                 continue;
 
             // "Point-and-click placing: on" -- the TITLE rather than the word
@@ -2422,17 +2452,10 @@ static bool GossipHello_go_house_control(Player* player, GameObject* go)
     if (!house)
         return false;
 
-    // A GUEST GETS ONE LINE AND NO MENU. Every option here mutates somebody
-    // else's house, so a menu full of refusals reads worse than no menu -- and
-    // the way out itself still works for them, which is what they walked over
-    // here for.
-    if (!sHouseMgr.CanEditHouse(player, *house))
-    {
-        ChatHandler(player).SendSysMessage("This is not your house. Walk into the doorway to leave.");
-        return true;
-    }
-
-    SendControlMain(player, go);
+    if (sHouseMgr.CanEditHouse(player, *house))
+        SendControlMain(player, go);
+    else
+        SendControlGuest(player, go);
     return true;
 }
 
@@ -2447,13 +2470,50 @@ static bool GossipSelect_go_house_control(Player* player, GameObject* go, uint32
     // gossip menu is a photograph: the player can be teleported out, or the
     // house can change hands, between the draw and the click.
     House* house = sHouseMgr.GetHouseByExitMarker(go ? go->GetObjectGuid() : ObjectGuid());
-    if (!house || !sHouseMgr.CanEditHouse(player, *house))
+    if (!house)
     {
         player->PlayerTalkClass->CloseGossip();
         return true;
     }
 
     std::string error;
+
+    // A GUEST may use only the rows of the guest page. The action arrives off
+    // the wire, so the page that was drawn does not limit it.
+    bool const guest = !sHouseMgr.CanEditHouse(player, *house);
+    uint32 const walkIn = ACT_CTL_SETTING_0 + HOUSE_SETTING_WALK_IN;
+    if (guest)
+    {
+        if (sender != HOUSE_CONTROL_SENDER ||
+            !(action == ACT_CTL_LEAVE || action == ACT_CTL_BACK || action == ACT_CTL_CLOSE || action == walkIn))
+        {
+            player->PlayerTalkClass->CloseGossip();
+            return true;
+        }
+
+        if (action == ACT_CTL_BACK)
+        {
+            SendControlGuest(player, go);
+            return true;
+        }
+    }
+
+    // The walk-through row is on the main page and the guest page, so it
+    // re-sends the page it was clicked on, not the Settings page.
+    if (sender == HOUSE_CONTROL_SENDER && action == walkIn)
+    {
+        uint32 const value = sHouseMgr.GetSetting(player, HOUSE_SETTING_WALK_IN) ? 0 : 1;
+        sHouseMgr.SetSetting(player, HOUSE_SETTING_WALK_IN, value);
+        if (char const* note = HouseMgr::SettingNote(HOUSE_SETTING_WALK_IN, value))
+            if (*note)
+                ChatHandler(player).SendSysMessage(note);
+
+        if (guest)
+            SendControlGuest(player, go);
+        else
+            SendControlMain(player, go);
+        return true;
+    }
 
     if (sender == HOUSE_UPGRADE_ASK_SENDER)
     {

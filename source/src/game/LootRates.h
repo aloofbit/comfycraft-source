@@ -12,14 +12,21 @@
 // - Rare endgame: the same from required level 50, everywhere.
 //
 // The rates are tw_char.loot_rates, id 1 (sql/custom/183_loot_rates.sql),
-// read at startup and on the console command `lootrates`. Without the table
+// read at startup and on the console command `lootrates`, with the rates of
+// single items (ItemRate, tw_char.loot_item_rate). Without the table
 // they come from mangosd.conf (Rate.Drop.Item.UncommonGear, .UncommonGear.Dungeon,
 // .RareGear, .RareGear.Dungeon and .RareGear.Endgame), re-read at each Load.
 
 #include "Common.h"
 
+#include <memory>
+#include <unordered_map>
+
 namespace LootRates
 {
+    // Item entry -> its own rate (tw_char.loot_item_rate, sql/custom/220).
+    typedef std::unordered_map<uint32, float> ItemRateMap;
+
     // The loot group of the worn gear drops (tools/gen-worn-gear-sql.js): the
     // armour a mob wears. The group rolls once at WornGear(), and a hit gives
     // one of its rows at random. No other rate touches it.
@@ -35,4 +42,16 @@ namespace LootRates
     // A chance in percent, not a multiplier: loot_rates.worn_gear
     // (sql/custom/192), or Rate.Drop.Item.WornGear without the column.
     float WornGear();
+
+    // An item's own rate: a multiplier on its table chance in every loot
+    // table that takes rates (kills, skinning, objects, fishing, pickpocket,
+    // containers), grouped or not, and in a dungeon boss's groups. It
+    // replaces the quality and gear rates for that item. Quest drops keep
+    // their chance. Negative when the item has none. Read with the rest by
+    // Load(), from loot_item_rate.
+    float ItemRate(uint32 itemId);
+
+    // The whole map, for a loop that looks up many items: one load, not one
+    // for each entry. Never null.
+    std::shared_ptr<ItemRateMap const> ItemRates();
 }

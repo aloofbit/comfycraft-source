@@ -332,6 +332,7 @@ class Quest
         // ObjectMgr::LoadQuestRaceVariants. Read only while quest races are ignored.
         uint32 m_raceVariantMask = 0;           // every race some variant at a shared giver covers
         bool m_raceVariantFallback = false;     // offered to a race that no variant covers
+        bool m_teachesRacial = false;           // teaches a racial, or leads to a quest that does
 
         // table data
     protected:

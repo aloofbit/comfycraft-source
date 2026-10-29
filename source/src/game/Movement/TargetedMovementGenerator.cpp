@@ -31,6 +31,83 @@
 #include "TemporarySummon.h"
 #include "GameObjectAI.h"
 #include "Geometry.h"
+#include "Config/Config.h"
+#include "GridDefines.h"
+
+#include <ctime>
+#include <mutex>
+#include <unordered_map>
+
+// pathing.log: one line when a follow or chase path fails and a player, a bot or a pet is at
+// either end. Each unit writes at most one line per PathingLog.Interval seconds (0 turns it off).
+// The tiles are the .mmtile names, for the probes in tools/navmesh.
+namespace
+{
+    uint32 MmapTile(uint32 mapId, float x, float y)
+    {
+        return mapId * 10000 + uint32(32 - x / SIZE_OF_GRIDS) * 100 + uint32(32 - y / SIZE_OF_GRIDS);
+    }
+
+    void LogPathFailure(Unit const& owner, Unit const& target, PathFinder const& path, bool chase)
+    {
+        static uint32 const interval = sConfig.GetIntDefault("PathingLog.Interval", 30);
+        if (!interval)
+            return;
+        if (!owner.IsCharmerOrOwnerPlayerOrPlayerItself() && !target.IsCharmerOrOwnerPlayerOrPlayerItself())
+            return;
+        // Farther than this is a catch-up after a hearthstone or a teleport: the path is cut
+        // short by its length limit, not by the mesh. Nearer than 3 yd the unit is already
+        // there (a companion teleported onto its owner gets a nopath to its own spot).
+        float const apart = (path.getEndPosition() - path.getStartPosition()).length();
+        if (apart > 100.0f || apart < 3.0f)
+            return;
+
+        static std::mutex lock;
+        static std::unordered_map<uint64, time_t> lastLine;
+        static FILE* file = nullptr;
+        static bool opened = false;
+
+        time_t now = time(nullptr);
+        std::lock_guard<std::mutex> guard(lock);
+        if (!opened)
+        {
+            opened = true;
+            std::string dir = sConfig.GetStringDefault("LogsDir", "");
+            if (!dir.empty() && dir.back() != '/' && dir.back() != '\\')
+                dir += '/';
+            file = fopen((dir + "pathing.log").c_str(), "a");
+        }
+        if (!file)
+            return;
+
+        if (lastLine.size() > 20000)
+            lastLine.clear();
+        time_t& last = lastLine[owner.GetObjectGuid().GetRawValue()];
+        if (now - last < time_t(interval))
+            return;
+        last = now;
+
+        Vector3 from = path.getStartPosition();
+        Vector3 to = path.getEndPosition();
+        Vector3 end = path.getActualEndPosition();
+        uint32 mapId = owner.GetMapId();
+        char stamp[32];
+        tm local;
+#ifdef _WIN32
+        localtime_s(&local, &now);
+#else
+        localtime_r(&now, &local);
+#endif
+        strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S", &local);
+
+        fprintf(file, "%s %s %s map %u: %s (%s %u) at %.1f %.1f %.1f tile %07u -> %s (%s %u) at %.1f %.1f %.1f tile %07u, %.1f yd apart, path ends at %.1f %.1f %.1f\n",
+            stamp, chase ? "chase" : "follow", (path.getPathType() & PATHFIND_NOPATH) ? "nopath" : "incomplete", mapId,
+            owner.GetName(), owner.IsPlayer() ? "player" : "creature", owner.GetObjectGuid().GetCounter(), from.x, from.y, from.z, MmapTile(mapId, from.x, from.y),
+            target.GetName(), target.IsPlayer() ? "player" : "creature", target.GetObjectGuid().GetCounter(), to.x, to.y, to.z, MmapTile(mapId, to.x, to.y),
+            (to - from).length(), end.x, end.y, end.z);
+        fflush(file);
+    }
+}
 
 //-----------------------------------------------//
 template<class T, typename D>
@@ -116,6 +193,8 @@ void TargetedMovementGeneratorMedium<T, D>::_setTargetLocation(T &owner)
     path.calculate(x, y, z, petFollowing);
 
     PathType pathType = path.getPathType();
+    if (pathType & (PATHFIND_NOPATH | PATHFIND_INCOMPLETE))
+        LogPathFailure(owner, *i_target.getTarget(), path, this->GetMovementGeneratorType() == CHASE_MOTION_TYPE);
     m_bReachable = pathType & (PATHFIND_NORMAL | PATHFIND_DEST_FORCED);
 
     if (!petFollowing && pathType == PATHFIND_NOPATH)

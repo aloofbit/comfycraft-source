@@ -123,6 +123,7 @@ namespace ai { namespace botdiag {
 #include "Shop/ShopMgr.h"
 #include "ComfyTitles.h"
 #include "LevelCap.h"
+#include "Announcements.h"
 #include "CraftPoints.h"
 #include "FactionlessWar.h"
 
@@ -3920,7 +3921,12 @@ void Player::GiveXP(uint32 xp, Unit* victim)
         newXP -= nextLvlXP;
 
         if (level < maxLevel)
+        {
             GiveLevel(level + 1);
+            // Here and not in GiveLevel, so .setlevel and .levelup do not
+            // announce (Announcements.h).
+            Announce::LevelReached(this);
+        }
 
         level = GetLevel();
         nextLvlXP = GetUInt32Value(PLAYER_NEXT_LEVEL_XP);
