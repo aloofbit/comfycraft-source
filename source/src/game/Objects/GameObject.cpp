@@ -371,6 +371,9 @@ void GameObject::Update(uint32 update_diff, uint32 /*p_time*/)
                             // Play splash sound
                             PlayDistanceSound(3355);
                             SendGameObjectCustomAnim();
+                            // ComfyUI/Fishing.lua shows a note above the cast bar.
+                            // 1.12 Lua has no event for the bite.
+                            caster->ToPlayer()->SendAddonMessage("CFISH", "BITE");
                         }
 
                         m_lootState = GO_READY;             // can be successfully open with some chance

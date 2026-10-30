@@ -1,6 +1,6 @@
 -- ============================================================================
 --  Fashion Demands Sacrifices (level 20): no Medium Leather, 1 Shadowgem,
---  3 Small Furry Paw; Shadowgem drops twice as often  (tw_world)
+--  3 Small Furry Paw  (tw_world)
 -- ============================================================================
 --  Applied with:
 --
@@ -26,21 +26,19 @@
 --    2  Shadowgem (1210)         1
 --    3  Small Furry Paw (5134)   3
 --
---  Every positive Shadowgem chance in these four tables is now two times the
---  upstream value:
+--  Until 2026-10-29 this script also doubled every positive Shadowgem chance
+--  in these four tables. It now sets each of them to the upstream chance
+--  kept in comfy_loot_baseline (sql/custom/143), the same as
+--  sql/custom/222:
 --
---    creature_loot_template      1017 rows   (the highest is 50%)
---    gameobject_loot_template      19 rows   (6 in a vein's gem group; the
---                                             group is 6% in all at most)
---    pickpocketing_loot_template   55 rows   (the highest is 40%)
+--    creature_loot_template      1017 rows   (the highest is 25%)
+--    gameobject_loot_template      19 rows   (6 in a vein's gem group)
+--    pickpocketing_loot_template   55 rows   (the highest is 20%)
 --    reference_loot_template       11 rows
 --
 --  Not changed: quest-only rows (a negative chance), containers in
---  item_loot_template and the two jewelcrafting vendors.
---
---  comfy_loot_baseline (sql/custom/143) keeps the upstream chance, so a
---  second run sets the same value and does not multiply again. The quest
---  text names no items. A character with the quest in progress when this
+--  item_loot_template and the two jewelcrafting vendors. The quest text
+--  names no items. A character with the quest in progress when this
 --  lands has its counts in the old slots: abandon and take it again.
 --  Re-runnable.
 -- ============================================================================
@@ -77,17 +75,17 @@ SELECT 'reference', entry, item, groupid, ChanceOrQuestChance
 
 UPDATE creature_loot_template l JOIN comfy_loot_baseline b
     ON b.src = 'creature' AND b.entry = l.entry AND b.item = l.item AND b.groupid = l.groupid
-   SET l.ChanceOrQuestChance = LEAST(b.chance * 2, 100)
+   SET l.ChanceOrQuestChance = b.chance
  WHERE l.item = 1210;
 UPDATE gameobject_loot_template l JOIN comfy_loot_baseline b
     ON b.src = 'gameobject' AND b.entry = l.entry AND b.item = l.item AND b.groupid = l.groupid
-   SET l.ChanceOrQuestChance = LEAST(b.chance * 2, 100)
+   SET l.ChanceOrQuestChance = b.chance
  WHERE l.item = 1210;
 UPDATE pickpocketing_loot_template l JOIN comfy_loot_baseline b
     ON b.src = 'pickpocketing' AND b.entry = l.entry AND b.item = l.item AND b.groupid = l.groupid
-   SET l.ChanceOrQuestChance = LEAST(b.chance * 2, 100)
+   SET l.ChanceOrQuestChance = b.chance
  WHERE l.item = 1210;
 UPDATE reference_loot_template l JOIN comfy_loot_baseline b
     ON b.src = 'reference' AND b.entry = l.entry AND b.item = l.item AND b.groupid = l.groupid
-   SET l.ChanceOrQuestChance = LEAST(b.chance * 2, 100)
+   SET l.ChanceOrQuestChance = b.chance
  WHERE l.item = 1210;

@@ -672,8 +672,10 @@ static void AddPersonalCopy(Loot& loot, LootStoreItem const& li, Player const* l
 }
 
 // Rolls a row once for each looter whose quest needs the item. Returns how
-// many looters needed it; at 0 the row rolls as it did before.
-static uint32 RollForQuestLooters(Loot& loot, LootStoreItem const& li, bool rate, bool grouped)
+// many looters needed it; at 0 the row rolls as it did before. Adds each
+// needer to `neederGuids` when it is given.
+static uint32 RollForQuestLooters(Loot& loot, LootStoreItem const& li, bool rate, bool grouped,
+    std::vector<ObjectGuid>* neederGuids = nullptr)
 {
     std::vector<Player*> const* looters = t_questLooters;
     if (!looters)
@@ -686,6 +688,8 @@ static uint32 RollForQuestLooters(Loot& loot, LootStoreItem const& li, bool rate
             continue;
 
         ++needers;
+        if (neederGuids)
+            neederGuids->push_back(looter->GetObjectGuid());
         float const base = grouped ? GroupedQuestChance(li, rate, looter) : UngroupedQuestChance(li, rate, looter);
         if (QuestRoll(looter, li.itemid, base, loot))
             AddPersonalCopy(loot, li, looter);
@@ -954,6 +958,10 @@ bool LootItem::AllowedForPlayer(Player const* player, WorldObject const* lootTar
     }
     if (!lootOwner.IsEmpty())
         return player->GetObjectGuid() == lootOwner;
+
+    for (ObjectGuid const& roller : personalRollers)
+        if (player->GetObjectGuid() == roller)
+            return false;
 
     return true;
 }
@@ -2092,13 +2100,21 @@ void LootTemplate::Process(Loot& loot, LootStore const& store, bool rate, Player
     for (const auto& itr : Entries)
     {
         // A row a looter's quest needs rolls for each such looter. A normal
-        // drop also rolls once for the looters who do not need it.
+        // drop also rolls once for the looters who do not need it. That
+        // shared copy is hidden from the needers: a party loot item (the
+        // Glowing Shard) is free for all, and showed a needer two.
         if (itr.mincountOrRef > 0)
         {
-            if (uint32 needers = RollForQuestLooters(loot, itr, rate, false))
+            std::vector<ObjectGuid> neederGuids;
+            if (uint32 needers = RollForQuestLooters(loot, itr, rate, false, &neederGuids))
             {
                 if (!itr.needs_quest && needers < t_questLooters->size() && itr.Roll(rate, lootOwner))
+                {
+                    size_t const before = loot.items.size();
                     loot.AddItem(itr);
+                    if (loot.items.size() > before)
+                        loot.items.back().personalRollers = std::move(neederGuids);
+                }
                 continue;
             }
         }

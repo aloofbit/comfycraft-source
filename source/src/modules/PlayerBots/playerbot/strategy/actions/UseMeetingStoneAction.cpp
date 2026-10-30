@@ -1,6 +1,7 @@
 
 #include "playerbot/playerbot.h"
 #include "UseMeetingStoneAction.h"
+#include "ChatShortcutActions.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/CompanionOwnership.h"
@@ -118,6 +119,14 @@ bool SummonAction::Execute(Event& event)
                 return false;
 
             lastCompanionSummon = now;
+
+            // A summoned companion comes back in follow mode (2026-10-29, the
+            // owner's request): the state a Follow press sets, stay and guard
+            // off, the pet called back. Teleport has just re-pinned a stay or
+            // guard spot to the landing; this drops the strategy as well. No
+            // strategy printout: the owner gets the one hello line.
+            FollowChatShortcutAction::SetFollowMode(ai, event);
+
             ai->TellPlayerNoFacing(requester, BOT_TEXT("hello"),
                 PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, false, true, true);
             return true;

@@ -6826,7 +6826,10 @@ void ObjectMgr::LoadCreatureQuestRelations()
 // A copy can end at an NPC that only its own race was meant to reach.
 //
 // A variant group is the class quests at one giver with the same RequiredClasses and
-// a race gate on each. For each quest this records the races its groups cover, and
+// a race gate on each. Quests with no class gate form a group by Title instead: Falla
+// Sagewind gives In Nightmares once for the Horde (3369) and once for the Alliance
+// (3370). The title keeps two different quests with two race gates at one giver
+// apart, so both stay open. For each quest this records the races its groups cover, and
 // whether it belongs to the copy offered to a race outside them: the race mask of the
 // group's lowest quest id. Every quest with that mask is the fallback, so a two-step
 // chain for that race stays whole. Quest::SatisfiesRaceRequirements reads both.
@@ -6882,11 +6885,36 @@ void ObjectMgr::LoadQuestRaceVariants()
     }
 
     uint32 grouped = 0;
+    uint32 sideCopies = 0;
+    auto mark = [](std::vector<Quest*> const& group, uint32& counter)
+    {
+        uint32 races = 0;
+        Quest const* lowest = nullptr;
+        for (Quest const* quest : group)
+        {
+            races |= quest->RequiredRaces;
+            if (!lowest || quest->QuestId < lowest->QuestId)
+                lowest = quest;
+        }
+        // One quest, or copies that all share a race mask: nothing to choose between.
+        if (races == lowest->RequiredRaces)
+            return;
+
+        for (Quest* quest : group)
+        {
+            if (!quest->m_raceVariantMask)
+                ++counter;
+            quest->m_raceVariantMask |= races;
+            if (quest->RequiredRaces == lowest->RequiredRaces)
+                quest->m_raceVariantFallback = true;
+        }
+    };
     auto scan = [&](QuestRelationsMap const& relations)
     {
         for (auto giver = relations.begin(); giver != relations.end(); giver = relations.upper_bound(giver->first))
         {
             std::map<uint32, std::vector<Quest*>> byClass;
+            std::map<std::string, std::vector<Quest*>> byTitle;
             auto range = relations.equal_range(giver->first);
             for (auto r = range.first; r != range.second; ++r)
             {
@@ -6894,33 +6922,18 @@ void ObjectMgr::LoadQuestRaceVariants()
                 if (q == m_QuestTemplatesMap.end())
                     continue;
                 Quest* quest = q->second.get();
-                if (quest->RequiredClasses && quest->RequiredRaces)
+                if (!quest->RequiredRaces)
+                    continue;
+                if (quest->RequiredClasses)
                     byClass[quest->RequiredClasses].push_back(quest);
+                else
+                    byTitle[quest->GetTitle()].push_back(quest);
             }
 
             for (auto const& group : byClass)
-            {
-                uint32 races = 0;
-                Quest const* lowest = nullptr;
-                for (Quest const* quest : group.second)
-                {
-                    races |= quest->RequiredRaces;
-                    if (!lowest || quest->QuestId < lowest->QuestId)
-                        lowest = quest;
-                }
-                // One quest, or copies that all share a race mask: nothing to choose between.
-                if (races == lowest->RequiredRaces)
-                    continue;
-
-                for (Quest* quest : group.second)
-                {
-                    if (!quest->m_raceVariantMask)
-                        ++grouped;
-                    quest->m_raceVariantMask |= races;
-                    if (quest->RequiredRaces == lowest->RequiredRaces)
-                        quest->m_raceVariantFallback = true;
-                }
-            }
+                mark(group.second, grouped);
+            for (auto const& group : byTitle)
+                mark(group.second, sideCopies);
         }
     };
     scan(m_CreatureQuestRelations);
@@ -6928,7 +6941,7 @@ void ObjectMgr::LoadQuestRaceVariants()
 
     // Three callers run this at start-up; only the last one has every relation.
     if (!m_CreatureQuestRelations.empty())
-        sLog.outString(">> %u class quests are race variants of one another, %u keep their race for a racial", grouped, racial);
+        sLog.outString(">> %u class quests are race variants of one another, %u side copies of one quest are race variants, %u keep their race for a racial", grouped, sideCopies, racial);
 }
 
 void ObjectMgr::LoadCreatureInvolvedRelations()

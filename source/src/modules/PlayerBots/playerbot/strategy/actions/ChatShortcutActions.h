@@ -19,6 +19,7 @@ namespace ai
     public:
         FollowChatShortcutAction(PlayerbotAI* ai) : MovementAction(ai, "follow chat shortcut") {}
         virtual bool Execute(Event& event) override;
+        static void SetFollowMode(PlayerbotAI* ai, Event& event);
         virtual bool isPossible() override { return true; }
         virtual bool isUseful() override { return true; }
     };

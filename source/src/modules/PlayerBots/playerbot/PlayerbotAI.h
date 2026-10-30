@@ -812,6 +812,7 @@ public:
 
     bool CanEnterArea(const AreaTrigger* area);
     void Unmount();
+    void UpdateSwimState();
 
     void QueuePacket(WorldPacket& pkt);
 

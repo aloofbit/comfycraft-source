@@ -36,6 +36,7 @@
 #include "NPCHandler.h"
 #include "Pet.h"
 #include "MapManager.h"
+#include "ClientLanguage.h"
 
 void WorldSession::SendNameQueryOpcode(Player *p)
 {
@@ -119,6 +120,9 @@ void WorldSession::SendNameQueryOpcodeFromDBCallBack(QueryResult *result, uint32
     delete result;
 }
 
+// ChatHandler.cpp: the name of a Discord user who spoke in World, by their guid.
+extern bool WorldDiscord_Name(uint32 lowGuid, std::string& name);
+
 void WorldSession::HandleNameQueryOpcode(WorldPacket & recv_data)
 {
     ObjectGuid guid;
@@ -127,8 +131,21 @@ void WorldSession::HandleNameQueryOpcode(WorldPacket & recv_data)
 
     Player *pChar = sObjectMgr.GetPlayer(guid);
 
+    std::string discordName;
     if (pChar)
         SendNameQueryOpcode(pChar);
+    else if (guid.IsPlayer() && WorldDiscord_Name(guid.GetCounter(), discordName))
+    {
+        // A line from Discord in World (`worldsay`). Priest, because a priest's class colour is white.
+        WorldPacket data(SMSG_NAME_QUERY_RESPONSE, (8 + (discordName.size() + 1) + 1 + 4 + 4 + 4));
+        data << guid;
+        data << discordName;
+        data << uint8(0);
+        data << uint32(RACE_HUMAN);
+        data << uint32(GENDER_MALE);
+        data << uint32(CLASS_PRIEST);
+        SendPacket(&data);
+    }
     else
         SendNameQueryOpcodeFromDB(guid);
 }
@@ -397,7 +414,7 @@ void WorldSession::HandleNpcTextQueryOpcode(WorldPacket & recv_data)
                 else
                     data << femaleText;
 
-                data << bct->languageId;
+                data << LanguageForClient(bct->languageId);  // ComfyCraft: Common and Orcish as Universal
 
                 data << bct->emoteDelay1;
                 data << bct->emoteId1;

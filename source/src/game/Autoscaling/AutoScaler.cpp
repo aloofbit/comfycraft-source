@@ -157,8 +157,13 @@ void AutoScaler::ScaleCreature(Creature* creature, uint32 playerCount, uint32 ma
 
 void AutoScaler::GenerateScaledMoneyLoot(Creature* creature, Loot* loot)
 {
+    // Dungeon kills come here instead of to the plain roll in Unit.cpp, so with the
+    // autoscaler off the creature must still drop its template coin.
     if (!sWorld.getConfig(CONFIG_BOOL_AUTOSCALER_ENABLE))
+    {
+        loot->GenerateMoneyLoot(creature->GetGoldMin(), creature->GetGoldMax());
         return;
+    }
 
     uint32 playerCount = creature->GetMap()->GetPlayersCountExceptGMs();
     const uint32 maxCount = std::max<uint32>(((DungeonMap*)creature->GetMap())->GetMaxPlayers(), 1);

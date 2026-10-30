@@ -1114,6 +1114,28 @@ void PlayerbotAI::Unmount()
     }
 }
 
+// The swim flag sets the speed of every spline the core gives a bot
+// (SelectSpeedType in MoveSplineInit.cpp), and a bot has no client to clear it.
+// Follow set it only when a follow started, so a companion whose follow started
+// in water kept it on land and followed at swim speed, two thirds of a run
+// (2026-10-30, Wailing Caverns). Checked each tick, sent only when it changes.
+void PlayerbotAI::UpdateSwimState()
+{
+    // Player::SetFlying uses the swim flag too.
+    if (bot->IsFlying() || bot->IsTaxiFlying())
+        return;
+
+    bool inWater = bot->IsInWater() || sServerFacade.IsUnderwater(bot);
+    if (inWater == bot->m_movementInfo.HasMovementFlag(MOVEFLAG_SWIMMING))
+        return;
+
+    if (inWater)
+        bot->m_movementInfo.AddMovementFlag(MOVEFLAG_SWIMMING);
+    else
+        bot->m_movementInfo.RemoveMovementFlag(MOVEFLAG_SWIMMING);
+    bot->UpdateSpeed(MOVE_SWIM, true);
+}
+
 bool PlayerbotAI::IsStateActive(BotState state) const
 {
     return currentEngine == engines[(uint8)state];
@@ -2615,6 +2637,8 @@ void PlayerbotAI::DoNextAction(bool min)
 
     if (!bot->IsInWorld()) //Teleport out of bg
         return;
+
+    UpdateSwimState();
 
     if (minimal)
     {

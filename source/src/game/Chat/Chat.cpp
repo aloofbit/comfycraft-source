@@ -40,6 +40,7 @@
 #include "HardcodedEvents.h"
 #include "ScriptObjects.h"
 #include "ComfyCommands.h"
+#include "ClientLanguage.h"
 
 #include <vector>
 
@@ -1096,6 +1097,8 @@ ChatCommand * ChatHandler::getCommandTable()
         { "addons",         SEC_DEVELOPER,       false, &ChatHandler::HandleListAddonsCommand,          "", nullptr },
         { "respawn",        SEC_DEVELOPER,       false, &ChatHandler::HandleRespawnCommand,             "", nullptr },
         { "send",           SEC_DEVELOPER,       true,  nullptr,                                        "", sendCommandTable     },
+        // The Discord bridge (bridge/server.js) sends this: a line from Discord into World.
+        { "worldsay",       SEC_CONSOLE,         true,  &ComfyCommands::HandleWorldSayCommand,          "", nullptr },
         { "mute",           SEC_MODERATOR,       true,  &ChatHandler::HandleMuteCommand,                "", nullptr },
         { "pausingmute",    SEC_MODERATOR,       true,  &ChatHandler::HandlePausingMuteCommand,         "", nullptr },
         { "unmute",         SEC_MODERATOR,       true,  &ChatHandler::HandleUnmuteCommand,              "", nullptr },
@@ -2448,6 +2451,13 @@ bool ChatHandler::isValidChatMessage(const char* message)
     return validSequence == validSequenceIterator;
 }
 
+uint32 LanguageForClient(uint32 language)
+{
+    if ((language == LANG_COMMON || language == LANG_ORCISH) && sWorld.getConfig(CONFIG_BOOL_ALLOW_TWO_SIDE_INTERACTION_CHAT))
+        return LANG_UNIVERSAL;
+    return language;
+}
+
 void ChatHandler::BuildChatPacket(WorldPacket& data, ChatMsg msgtype, const std::string& message, Language language /*= LANG_UNIVERSAL*/, uint32 chatTag /*= CHAT_TAG_NONE*/,
                                   ObjectGuid const& senderGuid /*= ObjectGuid()*/, char const* senderName /*= nullptr*/,
                                   ObjectGuid const& targetGuid /*= ObjectGuid()*/, char const* targetName /*= nullptr*/,
@@ -2461,14 +2471,11 @@ void ChatHandler::BuildChatPacket(WorldPacket& data, ChatMsg msgtype, const std:
     else
         messageFinal = message;
 
-    // ComfyCraft: with cross-faction chat on, Common and Orcish are sent as Universal. The
-    // player path does this in HandleMessagechatOpcode; this covers NPC and script speech.
-    if ((language == LANG_COMMON || language == LANG_ORCISH) && sWorld.getConfig(CONFIG_BOOL_ALLOW_TWO_SIDE_INTERACTION_CHAT))
-        language = LANG_UNIVERSAL;
-
+    // ComfyCraft: LanguageForClient sends Common and Orcish as Universal. The player path does
+    // this in HandleMessagechatOpcode; this covers NPC and script speech.
     data.Initialize(SMSG_MESSAGECHAT);
     data << uint8(msgtype);
-    data << uint32(language);
+    data << LanguageForClient(language);
 
     switch (msgtype)
     {

@@ -52,12 +52,104 @@
 #include "GMTicketMgr.h"
 #include "Housing/HouseMgr.h"
 #include "BotNpc.h"
+#include "ScriptMgr.h"
 
 
 #include "rapidjson/document.h"
 #include "rapidjson/rapidjson.h"
 #include <regex>
 #include "re2/re2.h"
+#include <ace/SOCK_Dgram.h>
+#include <ace/INET_Addr.h>
+#include <mutex>
+#include <unordered_map>
+
+// The World channel and one Discord channel, both ways (docs/ai/tools/discord-bridge.md). The bridge
+// is bridge/server.js, a node process beside the game.
+//
+// Game to Discord: one UDP packet per World line, "name<TAB>text" in UTF-8, to 127.0.0.1 on
+// DiscordBridge.Port (mangosd.conf, 0 is off). The socket is non-blocking and nothing waits for an
+// answer. A bridge that is down loses the line, and the game does not notice.
+//
+// Called once a World line is said: from HandleMessagechatOpcode, or from Antispam::ProcessMessages
+// (the AntispamAsync thread) for a line the antispam held, which is every line from a character at
+// or under Antispam.MaxRestrictionLevel (20). Not for a bot or a companion, and not for a line
+// that Channel::Say shows to its sender only (the same test as there).
+void SendWorldLineToDiscord(WorldSession const* session, std::string const& msg)
+{
+    static int32 const port = sConfig.GetIntDefault("DiscordBridge.Port", 0);
+    if (port <= 0 || port > 65535 || !session || msg.empty())
+        return;
+
+    Player const* player = session->GetPlayer();
+    if (!player)
+        return;
+
+    bool const shownToSelfOnly = session->IsFingerprintBanned() ||
+        ((session->GetAccountFlags() & ACCOUNT_FLAG_MUTED_FROM_PUBLIC_CHANNELS) &&
+         session->GetAccountMaxLevel() < sWorld.getConfig(CONFIG_UINT32_PUB_CHANS_MUTE_VANISH_LEVEL));
+    if (shownToSelfOnly || Script_IsMachineDriven(player))
+        return;
+
+    static ACE_SOCK_Dgram* const sock = []()
+    {
+        // Bound to loopback, not to every address: nothing outside the machine is ever involved.
+        ACE_SOCK_Dgram* s = new ACE_SOCK_Dgram(ACE_INET_Addr(u_short(0), ACE_UINT32(INADDR_LOOPBACK)));
+        if (s->get_handle() == ACE_INVALID_HANDLE)
+        {
+            sLog.outError("DiscordBridge: no UDP socket, World lines do not reach Discord");
+            return static_cast<ACE_SOCK_Dgram*>(nullptr);
+        }
+        s->enable(ACE_NONBLOCK);
+        return s;
+    }();
+    if (!sock)
+        return;
+
+    static ACE_INET_Addr const to(u_short(port), ACE_UINT32(INADDR_LOOPBACK));
+    std::string const packet = std::string(player->GetName()) + '\t' + msg;
+    sock->send(packet.data(), packet.size(), to);
+}
+
+// Discord users in World (`worldsay`, Commands.cpp). Each one has a player guid in
+// [DISCORD_GUID_FIRST, DISCORD_GUID_LAST], a hash of their Discord id, so the same user keeps the
+// same guid across restarts. Character guids count up from 1 (MAX(guid) + 1, and a freed guid is
+// reused below that), so a character reaches this range only after 2,130,706,431 characters. The
+// range stays under 0x80000000, so nothing that reads a guid as a signed 32-bit number sees a
+// negative one. HandleNameQueryOpcode (QueryHandler.cpp) answers these with "Name (Discord)".
+static uint32 const DISCORD_GUID_FIRST = 0x7F000000;
+static uint32 const DISCORD_GUID_LAST  = 0x7FFFFFFE;
+
+static std::mutex s_discordNamesLock;                       // the name query runs on map threads
+static std::unordered_map<uint32, std::string> s_discordNames;
+
+uint32 WorldDiscord_Guid(std::string const& discordId)
+{
+    uint32 hash = 2166136261u;                              // FNV-1a
+    for (char c : discordId)
+        hash = (hash ^ uint8(c)) * 16777619u;
+    return DISCORD_GUID_FIRST + hash % (DISCORD_GUID_LAST - DISCORD_GUID_FIRST + 1);
+}
+
+void WorldDiscord_SetName(uint32 lowGuid, std::string const& name)
+{
+    std::lock_guard<std::mutex> guard(s_discordNamesLock);
+    if (s_discordNames.size() > 10000)
+        s_discordNames.clear();
+    s_discordNames[lowGuid] = name;
+}
+
+// False for a guid outside the range. A guid in the range that this run has not seen (the server
+// restarted while a client still had the line) is "Someone (Discord)".
+bool WorldDiscord_Name(uint32 lowGuid, std::string& name)
+{
+    if (lowGuid < DISCORD_GUID_FIRST || lowGuid > DISCORD_GUID_LAST)
+        return false;
+    std::lock_guard<std::mutex> guard(s_discordNamesLock);
+    auto const itr = s_discordNames.find(lowGuid);
+    name = (itr != s_discordNames.end() ? itr->second : std::string("Someone")) + " (Discord)";
+    return true;
+}
 
 bool WorldSession::CheckChatMessageValidity(std::string& msg, uint32 lang, uint32 msgType)
 {
@@ -508,6 +600,8 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket & recv_data)
                         {
                             std::string logChat = sWorld.FormatLoggedChat(this, "Chan", msg, nullptr, 0, channel.c_str());
                            // sWorld.SendDiscordMessage(1075224002013962250, logChat);
+
+                            SendWorldLineToDiscord(this, msg);
                         }
                     }
 

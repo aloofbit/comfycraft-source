@@ -48,8 +48,8 @@
 --  and the dialog in their editors after this.
 --
 --  HALLOW'S END. Fifteen crates at 50s (a vendor buys one back for 10s) in
---  the shop "Furniture: Hallow's End", sold by Mister Bones (100045). He is not spawned
---  here: `.npc add 100045`, and `.npc delete` when the holiday ends. The
+--  the shop "Furniture: Hallow's End", sold by Mister Bones, a Custom NPC
+--  made on /admin/npcbots on each server (see the Mister Bones section). The
 --  crates place all year. Item numbers 100400-100414: the furniture page
 --  continues after them.
 --
@@ -180,17 +180,13 @@ INSERT IGNORE INTO npc_vendor_template (entry, slot, item, maxcount, incrtime)
 
 
 -- ---------------------------------------------------------------- Mister Bones
---  A copy of Adela's row with every field that differs set here, so it does
---  not depend on what Adela looks like. Vendor only (4): a right-click opens
---  the shop window. Display 158 is the plain skeleton (creature 6412).
+--  Entry 100045 is retired. Mister Bones is a Custom NPC from /admin/npcbots
+--  (101000-101999), with the dialog "Mister Bones" and a button that opens
+--  the shop. This file made 100045 until 2026-10-29; the deletes take it off
+--  a server that ran the old file. Never reuse 100045: the client caches a
+--  creature's name by entry.
+DELETE FROM creature WHERE id = 100045;
 DELETE FROM creature_template WHERE entry = 100045;
-CREATE TEMPORARY TABLE comfy_bones AS SELECT * FROM creature_template WHERE entry = 100028;
-UPDATE comfy_bones SET entry = 100045, name = 'Mister Bones', subname = 'Hallow''s End Decor',
-       display_id1 = 158, display_id2 = 0, display_id3 = 0, display_id4 = 0,
-       npc_flags = 4, gossip_menu_id = 0, script_name = '',
-       vendor_id = (SELECT id FROM shop WHERE name = 'Furniture: Hallow''s End');
-INSERT INTO creature_template SELECT * FROM comfy_bones;
-DROP TEMPORARY TABLE comfy_bones;
 
 
 -- ---------------------------------------------------------------- Adela's dialog
@@ -254,7 +250,6 @@ DELETE FROM npc_vendor WHERE entry = 100028;
 -- ROLLBACK: re-run 042 and 210 from before this change (git), which put
 -- Adela's script and stock back, then:
 --
--- DELETE FROM creature_template   WHERE entry = 100045;
 -- DELETE FROM npc_vendor_template WHERE entry IN (SELECT id FROM shop WHERE comment LIKE '%sql/custom/219');
 -- DELETE FROM shop                WHERE comment LIKE '%sql/custom/219';
 -- Delete the dialog "Furnisher Adela" in /admin/dialogs.

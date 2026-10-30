@@ -1064,6 +1064,7 @@ void World::LoadConfigSettingsFromFile(bool reload)
     setConfig(CONFIG_FLOAT_RATE_REST_INGAME,                    "Rate.Rest.InGame", 1.0f);
     setConfig(CONFIG_FLOAT_RATE_REST_OFFLINE_IN_TAVERN_OR_CITY, "Rate.Rest.Offline.InTavernOrCity", 1.0f);
     setConfig(CONFIG_FLOAT_RATE_REST_OFFLINE_IN_WILDERNESS,     "Rate.Rest.Offline.InWilderness", 1.0f);
+    setConfig(CONFIG_FLOAT_RATE_REST_INGAME_IN_TAVERN,          "Rate.Rest.InGame.InTavern", 1.0f);
     setConfigPos(CONFIG_FLOAT_RATE_DAMAGE_FALL,                 "Rate.Damage.Fall", 1.0f);
     setConfigPos(CONFIG_FLOAT_RATE_AUCTION_TIME,                "Rate.Auction.Time", 1.0f);
     setConfig(CONFIG_FLOAT_RATE_AUCTION_DEPOSIT,                "Rate.Auction.Deposit", 1.0f);

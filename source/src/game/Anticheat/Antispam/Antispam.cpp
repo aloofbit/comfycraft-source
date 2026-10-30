@@ -16,6 +16,9 @@
 
 Antispam sAntispam;
 
+// ChatHandler.cpp: a World line to the Discord bridge (docs/ai/tools/discord-bridge.md).
+void SendWorldLineToDiscord(WorldSession const* session, std::string const& msg);
+
 void AntispamAsyncWorker(Antispam *antispam)
 {
     using namespace std::chrono_literals;
@@ -390,6 +393,7 @@ void Antispam::ProcessMessages(uint32 diff)
                             {
                                // std::string logChat = sWorld.FormatLoggedChat(pSender->GetSession(), "Chan", messageBlock.msg, nullptr, 0, channel->GetName().c_str());
                                // sWorld.SendDiscordMessage(1075224002013962250, logChat);
+                                SendWorldLineToDiscord(pSender->GetSession(), messageBlock.msg);
                             }
                         }
 

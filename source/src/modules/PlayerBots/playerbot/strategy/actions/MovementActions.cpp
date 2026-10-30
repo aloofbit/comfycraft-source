@@ -2491,16 +2491,7 @@ bool MovementAction::Follow(Unit* target, float distance)
 
 void MovementAction::UpdateMovementState()
 {
-    if (bot->IsInWater() || sServerFacade.IsUnderwater(bot))
-    {
-		bot->m_movementInfo.AddMovementFlag(MOVEFLAG_SWIMMING);
-        bot->UpdateSpeed(MOVE_SWIM, true);
-    }
-    else
-    {
-		bot->m_movementInfo.RemoveMovementFlag(MOVEFLAG_SWIMMING);
-        bot->UpdateSpeed(MOVE_SWIM, true);
-    }
+    ai->UpdateSwimState();
 
 #ifndef MANGOSBOT_ZERO
     if (bot->IsFlying())
@@ -2516,9 +2507,11 @@ bool MovementAction::Follow(Unit* target, float distance, float angle)
     MotionMaster &mm = *bot->GetMotionMaster();
 
     // Already following there: do nothing at all. Everything below sends
-    // something to the clients around, and UpdateMovementState alone sends a
-    // forced swim speed on every call, about 120 times in one walk behind the
-    // owner. The companion still snapped downhill with only the restarts gone.
+    // something to the clients around: UpdateMovementState sent a forced swim
+    // speed on every call, about 120 times in one walk behind the owner, until
+    // it sent one only on a change. The companion still snapped downhill with
+    // only the restarts gone. The swim flag is kept right each tick by
+    // PlayerbotAI::UpdateSwimState, so this return does not leave it stale.
     if (IsFollowing(bot, target, distance, angle))
         return false;
 

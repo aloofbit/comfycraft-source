@@ -6943,6 +6943,112 @@ bool ComfyCommands::HandleGMTicketRespondCommand(ChatHandler* handler, char* arg
     return true;
 }
 
+// worldsay <discord id> <name> <text> (console): a line from the Discord channel into World, as a
+// player's line looks. The Discord bridge sends it (bridge/server.js, docs/ai/tools/discord-bridge.md).
+// The name and the text take the escapes above. The name is one argument, so the bridge writes its
+// spaces as  . The sender's guid is a hash of the Discord id (WorldDiscord_Guid, ChatHandler.cpp),
+// and HandleNameQueryOpcode answers the client's name query for it with "Name (Discord)".
+//
+// A chat command has no mute and no ChatFlood counter: the bridge's rate limit and its Discord-id bans
+// cover Discord users. The language checks are a player's World checks (EnforceEnglish and the Hanzi
+// block in ChatHandler.cpp), done here because EnforceEnglish needs a session.
+extern uint32 WorldDiscord_Guid(std::string const& discordId);
+extern void WorldDiscord_SetName(uint32 lowGuid, std::string const& name);
+
+bool ComfyCommands::HandleWorldSayCommand(ChatHandler* handler, char* args)
+{
+    char* idArg = handler->ExtractArg(&args);
+    char* nameArg = idArg ? handler->ExtractArg(&args) : nullptr;
+    std::string const discordId = idArg ? idArg : "";
+    if (!nameArg || !args || !*args || discordId.empty() || discordId.size() > 20 ||
+        discordId.find_first_not_of("0123456789") != std::string::npos)
+    {
+        handler->SendSysMessage("Usage: worldsay <discord id> <name> <text>");
+        handler->SetSentErrorMessage(true);
+        return false;
+    }
+
+    std::string nameIn, textIn;
+    std::wstring wname, wtext;
+    if (!DecodeConsoleText(nameArg, nameIn) || !DecodeConsoleText(args, textIn) ||
+        !Utf8toWStr(nameIn, wname) || !Utf8toWStr(textIn, wtext))
+    {
+        handler->SendSysMessage("worldsay: the name or the text is not valid UTF-8.");
+        handler->SetSentErrorMessage(true);
+        return false;
+    }
+
+    if ((sWorld.getConfig(CONFIG_BOOL_ENFORCED_ENGLISH) && !IsAsciiOnly(wtext)) ||
+        (sWorld.getConfig(CONFIG_BOOL_BLOCK_ALL_HANZI) && hasChinese(wtext)))
+    {
+        handler->SendSysMessage("worldsay: refused, the text is not English.");
+        return true;
+    }
+
+    auto trim = [](std::wstring& s)
+    {
+        size_t const first = s.find_first_not_of(L' ');
+        size_t const last = s.find_last_not_of(L' ');
+        s = first == std::wstring::npos ? std::wstring() : s.substr(first, last - first + 1);
+    };
+
+    // The name goes into the client's player link, so no |, [ or ].
+    std::wstring wclean;
+    for (wchar_t c : wname)
+        if (c >= 32 && c != 127 && c != L'|' && c != L'[' && c != L']')
+            wclean += c;
+    trim(wclean);
+    if (wclean.size() > 24)
+    {
+        wclean.resize(24);
+        if (wclean.back() >= 0xD800 && wclean.back() <= 0xDBFF)   // half of a UTF-16 pair (Windows)
+            wclean.pop_back();
+    }
+    trim(wclean);
+    if (wclean.empty())
+        wclean = L"Someone";
+
+    // A | starts an escape code in the client (a colour, a link). Doubled, it shows as typed.
+    std::wstring wsaid;
+    for (wchar_t c : wtext)
+    {
+        if (c < 32 || c == 127)
+            c = L' ';
+        if (c == L'|')
+            wsaid += L'|';
+        wsaid += c;
+    }
+    trim(wsaid);
+
+    std::string name, text;
+    if (!WStrToUtf8(wclean, name) || !WStrToUtf8(wsaid, text))
+        return false;
+
+    // The client's limit, 255 bytes, cut on a character boundary and never inside a doubled |.
+    if (text.size() > 255)
+    {
+        size_t end = 255;
+        while (end > 0 && (uint8(text[end]) & 0xC0) == 0x80)
+            --end;
+        text.resize(end);
+        size_t bars = 0;
+        while (bars < text.size() && text[text.size() - 1 - bars] == '|')
+            ++bars;
+        if (bars % 2)
+            text.resize(text.size() - 1);
+    }
+    if (text.empty())
+        return true;
+
+    uint32 const lowGuid = WorldDiscord_Guid(discordId);
+    WorldDiscord_SetName(lowGuid, name);
+    ObjectGuid const guid(HIGHGUID_PLAYER, lowGuid);
+    ChannelMgr::AnnounceBothFactionsChannel("World", guid, text.c_str());
+    // The moderators' copy of World, as a player's line has (ChatHandler.cpp), in Discord's colour.
+    ChannelMgr::AnnounceBothFactionsChannel("Global", guid, ("|cff7289da" + text + "|r").c_str());
+    return true;
+}
+
 // .send letter <name> <copper> <item[:count]|-> <subject>|<text>: one GM
 // letter with money and an item together, which the stock send commands
 // cannot do. 1.12 mail carries one item stack (MAX_MAIL_ITEMS), so the count
@@ -15552,6 +15658,7 @@ namespace
         { "npc savefaction",   ".npc savefaction [faction | off]   keep a faction for the selected spawn only; 35 makes it unattackable" },
         { "ticket respond",    ".ticket respond <id> <text>   answer a GM ticket (\\n is a new line)" },
         { "send letter",       ".send letter <name> <copper> <item[:count]|-> <subject>|<text>   a GM letter (console)" },
+        { "worldsay",          "worldsay <discord id> <name> <text>   a line from Discord into World; the Discord bridge sends it (console)" },
         { "reload bot_npc",    "reload bot_npc | broadcast_text | custom_merchant | dialog_scenes | "
                                "gameobject_template | moonstone_payout | rented_mount | start_zones   (console)" },
     };

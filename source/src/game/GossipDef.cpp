@@ -26,6 +26,7 @@
 #include "WorldPacket.h"
 #include "WorldSession.h"
 #include "Formulas.h"
+#include "ClientLanguage.h"
 
 GossipMenu::GossipMenu(WorldSession* session) : m_session(session)
 {
@@ -334,7 +335,7 @@ void PlayerMenu::SendTalking(uint32 textID)
                 else
                     data << femaleText;
 
-                data << bct->languageId;
+                data << LanguageForClient(bct->languageId);  // ComfyCraft: Common and Orcish as Universal
 
                 data << bct->emoteDelay1;
                 data << bct->emoteId1;

@@ -146,6 +146,9 @@ struct LootItem
     bool    is_counted        : 1;
     bool    needs_quest       : 1;                          // quest drop
     ObjectGuid lootOwner;           // Roll winner player guid, in case of full inventory
+    // Looters who rolled for this row on their own (a hit is a personal copy
+    // in m_questItems). AllowedForPlayer hides this shared copy from them.
+    std::vector<ObjectGuid> personalRollers;
     // bot reads lootItemType. Default 0 (NORMAL).
     uint32 lootItemType = 0;
     // bot reads isBlocked (cmangos camelCase) — alias for is_blocked.

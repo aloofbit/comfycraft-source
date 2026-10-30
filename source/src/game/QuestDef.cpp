@@ -245,9 +245,11 @@ bool Quest::SatisfiesRaceRequirements(uint32 raceMask) const
     // still tag a quest Alliance or Horde. See docs/features/factionless.md piece 4.
     //
     // One exception: a class quest that a giver offers in one copy per race (the
-    // starter letters, The Hunter's Path, the priest racial spells). A race that one
-    // of the copies covers keeps the stock gate and sees only its own copy. A race
-    // that no copy covers sees one copy, not all of them.
+    // starter letters, The Hunter's Path, the priest racial spells), or a quest with
+    // no class gate that a giver offers in one copy per side under one title (In
+    // Nightmares at Falla Sagewind). A race that one of the copies covers keeps the
+    // stock gate and sees only its own copy. A race that no copy covers sees one
+    // copy, not all of them.
     //
     // A quest against a creature that stays at war is open to every race too:
     // holding it is what sets the player at war (FactionlessWar.h).

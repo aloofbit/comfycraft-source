@@ -50,6 +50,48 @@ static void RecallPet(Player* bot)
     bot->GetSession()->HandlePetAction(data);
 }
 
+// The state a Follow press leaves the bot in. Shared with the companion summon
+// (SummonAction::Execute), which ends in follow mode since 2026-10-29.
+void FollowChatShortcutAction::SetFollowMode(PlayerbotAI* ai, Event& event)
+{
+    // Both engines, like flee does. Adding +follow to the non-combat engine
+    // only is what made the old follow useless as a retreat: the moment
+    // anything swung at the bot it switched engines, lost the follow strategy,
+    // and stood there fighting instead of coming back.
+    //
+    // One string for both engines. The movement strategies are siblings
+    // (MovementStrategyContext), so +follow already drops stay and guard in
+    // either engine; -stay,-guard make that explicit. The non-combat string
+    // had no -guard before 2026-10-29, with the same result.
+    ai->Reset();
+    ai->ChangeStrategy("+follow,+passive,-stay,-guard,-wander", BotState::BOT_STATE_NON_COMBAT);
+    ai->ChangeStrategy("+follow,+passive,-stay,-guard,-wander", BotState::BOT_STATE_COMBAT);
+    ai->FadePassiveAfter(5000);
+    ai->SetTightFollow(true);
+    RecallPet(ai->GetBot());
+
+    // Coming back to the master abandons a pull, and it has to be said out
+    // loud. Passive and PullMultiplier would otherwise gate each other into a
+    // deadlock: the pull's actions are the only ones PullMultiplier allows, and
+    // passive zeroes every one of them, so the bot would stand still holding a
+    // pull nothing could advance until the 15s failsafe expired.
+    //
+    // Routed through "pull end" for the same reason FleeAction routes through
+    // it - the pet's react state and the anchor need the real cleanup.
+    if (PullStrategy* pull = PullStrategy::Get(ai))
+    {
+        if (pull->HasPullStarted())
+        {
+            ai->DoSpecificAction("pull end", event, true);
+        }
+    }
+
+    ai::PositionMap& posMap = ai->GetAiObjectContext()->GetValue<ai::PositionMap&>("position")->Get();
+    ai::PositionEntry pos = posMap["return"];
+    pos.Reset();
+    posMap["return"] = pos;
+}
+
 bool FollowChatShortcutAction::Execute(Event& event)
 {
     Player* requester = event.getOwner() ? event.getOwner() : GetMaster();
@@ -78,37 +120,9 @@ bool FollowChatShortcutAction::Execute(Event& event)
     // order is the owner's choice over that: predictable, and a bot still
     // running back from far away may start fighting on the way.
     //
-    // Both engines, like flee does. Adding +follow to the non-combat engine
-    // only is what made the old follow useless as a retreat: the moment
-    // anything swung at the bot it switched engines, lost the follow strategy,
-    // and stood there fighting instead of coming back.
-    ai->Reset();
-    ai->ChangeStrategy("+follow,+passive,-stay,-wander,", BotState::BOT_STATE_NON_COMBAT);
-    ai->ChangeStrategy("+follow,+passive,-stay,-guard,-wander", BotState::BOT_STATE_COMBAT);
-    ai->FadePassiveAfter(5000);
-    ai->SetTightFollow(true);
-    RecallPet(bot);
-
-    // Coming back to the master abandons a pull, and it has to be said out
-    // loud. Passive and PullMultiplier would otherwise gate each other into a
-    // deadlock: the pull's actions are the only ones PullMultiplier allows, and
-    // passive zeroes every one of them, so the bot would stand still holding a
-    // pull nothing could advance until the 15s failsafe expired.
-    //
-    // Routed through "pull end" for the same reason FleeAction routes through
-    // it - the pet's react state and the anchor need the real cleanup.
-    if (PullStrategy* pull = PullStrategy::Get(ai))
-    {
-        if (pull->HasPullStarted())
-        {
-            ai->DoSpecificAction("pull end", event, true);
-        }
-    }
+    SetFollowMode(ai, event);
 
     ai::PositionMap& posMap = context->GetValue<ai::PositionMap&>("position")->Get();
-    ai::PositionEntry pos = posMap["return"];
-    pos.Reset();
-    posMap["return"] = pos;
 
     ReturnPositionResetAction::PrintStrategies(ai, event);
 

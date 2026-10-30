@@ -329,6 +329,7 @@ set (game_SRCS
     Chat/AsyncCommandHandlers.h
     Chat/WhisperTargetLimits.h
     Chat/SoundLog.h
+    Chat/ClientLanguage.h
     Commands/Nostalrius.h
     Database/CharacterDatabaseCache.h
     Database/CharacterDatabaseCleaner.h

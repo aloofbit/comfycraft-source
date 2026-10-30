@@ -1766,7 +1766,7 @@ void Player::Update(uint32 update_diff, uint32 p_time)
             if (time_inn >= 10)                             // Freeze update
             {
                 if (GetRestType() == REST_TYPE_IN_TAVERN)
-                    AddRestBonus(sObjectMgr.GetXPForLevel(GetLevel()) * RESTED_XP_TENT_RATE * time_inn, GetRestBonusCap(RESTED_XP_TAVERN_CAP));
+                    AddRestBonus(sObjectMgr.GetXPForLevel(GetLevel()) * RESTED_XP_TENT_RATE * sWorld.getConfig(CONFIG_FLOAT_RATE_REST_INGAME_IN_TAVERN) * time_inn, GetRestBonusCap(RESTED_XP_TAVERN_CAP));
                 else
                     SetRestBonus(GetRestBonus() + ComputeRest(time_inn));
                 UpdateInnerTime(now);
