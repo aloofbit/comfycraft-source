@@ -9,9 +9,9 @@
 --  then, in the mangosd console:  reload item_template
 --
 --  A cloth helm with no stats: the Hallow's End jack-o'-lantern (G_Pumpkin_01)
---  worn as a head. Display 100000 is ours and is only in patch-V
---  (patches/build-patch-v.js, patches/lib/jack-helm.js). A client without the
---  new patch-V shows the item with no model and a question mark icon. It hides
+--  worn as a head. Display 46514 is Turtle's pumpkin helm; patch-V replaces its
+--  models and icon (patches/build-patch-v.js, patches/lib/jack-helm.js). A
+--  client without the new patch-V shows the item with no model. It hides
 --  hair, beards and ears on every race. Any class and race can wear it. It is
 --  not bound, so players can trade it.
 --
@@ -26,7 +26,7 @@ INSERT INTO item_template
    allowable_race, item_level, required_level, stackable, max_count,
    armor, bonding, material, sheath, max_durability)
 VALUES
-  (100078, 4, 1, 'Jack-o''-Lantern Helm', 'Recommended remove candle before wearing', 100000, 1, 0,
+  (100078, 4, 1, 'Jack-o''-Lantern Helm', 'Recommended remove candle before wearing', 46514, 1, 0,
    1, 500, 125, 1, -1,
    -1, 1, 0, 1, 0,
    2, 0, 7, 0, 20);
