@@ -110,6 +110,7 @@
 #include "LootLuck.h"
 #include "LootRates.h"
 #include "DungeonRun.h"
+#include "LoginLetter.h"
 
 #include <filesystem>
 
@@ -2381,6 +2382,7 @@ void LoadPlayerEggLoot();
         sLog.outString(">> Loot rates: own rate on %u items.", uint32(own));
     sLog.outString("Loading dungeon run tables...");
     DungeonRun::Load();
+    LoginLetter::Load();
     sLog.outString("Loading creature movement scripts...");
     sScriptMgr.LoadCreatureMovementScripts();
     sLog.outString("Loading waypoints...");

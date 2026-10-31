@@ -55,6 +55,10 @@
 #include "Housing/HouseMgr.h"
 #include "ArrivalFloor.h"
 #include "Announcements.h"
+#include "LoginLetter.h"
+
+#include <atomic>
+#include <set>
 
 // config option SkipCinematics supported values
 enum CinematicsSkipMode
@@ -1097,8 +1101,10 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
             .SendMailTo(pCurrChar, MailSender(MAIL_CREATURE, uint32(51550), MAIL_STATIONERY_DEFAULT), MAIL_CHECK_MASK_COPIED, 0, 30 * DAY);
 
         pCurrChar->RemoveCustomFlag(CUSTOM_PLAYER_FLAG_BROKEN_GOBLIN);
-    }      
-        
+    }
+
+    LoginLetter::OnLogin(pCurrChar);
+
 
     // Chinese Lunar Festivale
     //if (sWorld.getConfig(CONFIG_BOOL_SEA_NETWORK) && !pCurrChar->HasCustomFlag(CUSTOM_PLAYER_FLAG_RECEIVED_LUNAR_GIFT))
@@ -1329,4 +1335,105 @@ void WorldSession::HandleChangePlayerNameOpcodeCallBack(QueryResult *result, uin
 
     sObjectMgr.ChangePlayerNameInCache(guidLow, oldname, newname);
     sWorld.InvalidatePlayerDataToAllClients(guid);
+}
+
+// Login letters (Objects/LoginLetter.h).
+namespace
+{
+    std::atomic<bool> s_loginLetterTables{false};
+
+    // Letter and character pairs sent since start-up. A quick relog can ask
+    // twice before the first send's row is written; this stops the second
+    // letter. Read and written on the world thread only.
+    std::set<std::pair<uint32, uint32>> s_loginLetterSent;
+
+    // "ComfyCraft Staff", never spawned (sql/custom/153), as .send letter uses.
+    uint32 const LOGIN_LETTER_SENDER = 100041;
+
+    // On the world thread: async query results are handed out in World::Update.
+    void LoginLetterResult(QueryResult* result, uint32 guidLow)
+    {
+        if (!result)
+            return;
+
+        // Gone again, or a bot after all: no letter and no row, so the next
+        // login asks again.
+        Player* player = sObjectMgr.GetPlayer(ObjectGuid(HIGHGUID_PLAYER, guidLow));
+        if (!player || !player->IsInWorld() || Script_IsAIControlled(player))
+        {
+            delete result;
+            return;
+        }
+
+        do
+        {
+            Field* fields = result->Fetch();
+            uint32 const id = fields[0].GetUInt32();
+            std::string const subject = fields[1].GetCppString();
+            std::string const body = fields[2].GetCppString();
+            uint32 const itemId = fields[3].GetUInt32();
+            uint32 const itemCount = fields[4].GetUInt32();
+
+            if (!s_loginLetterSent.insert({ id, guidLow }).second)
+                continue;
+
+            // The page checks the item too. A row that fails here is skipped
+            // and not marked, so a fix to the row reaches this character.
+            ItemPrototype const* proto = itemId ? sObjectMgr.GetItemPrototype(itemId) : nullptr;
+            if (itemId && (!proto || !itemCount || itemCount > proto->GetMaxStackSize()))
+            {
+                sLog.outError("Login letter %u: item %u x%u is not valid; not sent.", id, itemId, itemCount);
+                continue;
+            }
+
+            MailDraft draft;
+            draft.SetSubjectAndBody(subject, body);
+            if (proto)
+                if (Item* item = Item::CreateItem(itemId, itemCount, nullptr))
+                {
+                    item->SaveToDB();                       // as .send letter: a failed send deletes it
+                    draft.AddItem(item);
+                }
+            draft.SendMailTo(MailReceiver(player), MailSender(MAIL_CREATURE, LOGIN_LETTER_SENDER, MAIL_STATIONERY_GM));
+
+            CharacterDatabase.PExecute(
+                "INSERT IGNORE INTO `login_letter_sent` (`letter_id`, `guid`, `sent_at`) VALUES (%u, %u, NOW())",
+                id, guidLow);
+        } while (result->NextRow());
+
+        delete result;
+    }
+}
+
+void LoginLetter::Load()
+{
+    bool present = false;
+    if (QueryResult* probe = CharacterDatabase.Query(
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() "
+            "AND table_name IN ('login_letter', 'login_letter_sent')"))
+    {
+        present = probe->Fetch()[0].GetUInt32() == 2;
+        delete probe;
+    }
+    s_loginLetterTables.store(present, std::memory_order_relaxed);
+    if (!present)
+        sLog.outString(">> Login letters: off (apply sql/custom/225_login_letters.sql to tw_char, then restart).");
+}
+
+bool LoginLetter::TablesPresent()
+{
+    return s_loginLetterTables.load(std::memory_order_relaxed);
+}
+
+void LoginLetter::OnLogin(Player* player)
+{
+    // A bot's session has no socket.
+    if (!TablesPresent() || !player->GetSession()->GetSocket())
+        return;
+
+    CharacterDatabase.AsyncPQuery(&LoginLetterResult, player->GetGUIDLow(),
+        "SELECT l.`id`, l.`subject`, l.`body`, l.`item_entry`, l.`item_count` FROM `login_letter` l "
+        "WHERE l.`enabled` = 1 AND NOT EXISTS (SELECT 1 FROM `login_letter_sent` s "
+        "WHERE s.`letter_id` = l.`id` AND s.`guid` = %u) ORDER BY l.`id`",
+        player->GetGUIDLow());
 }

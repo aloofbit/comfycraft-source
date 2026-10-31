@@ -59,6 +59,7 @@
 #include "GuildMgr.h"
 #include "BotNpc.h"
 #include "DungeonRun.h"
+#include "LoginLetter.h"
 #include "Pet.h"
 #include "Util.h"
 #include "Transport.h"
@@ -6013,6 +6014,10 @@ void Player::DeleteFromDB(ObjectGuid playerguid, uint32 accountId, bool updateRe
             // sql/custom/209, the same reuse. Left behind, a new character
             // who logs in inside a house would leave by somebody else's portal.
             CharacterDatabase.PExecute("DELETE FROM character_house_return WHERE guid = '%u'", lowguid);
+            // sql/custom/225, the same reuse. Left behind, a new character
+            // would never get a letter its guid's last owner had.
+            if (LoginLetter::TablesPresent())
+                CharacterDatabase.PExecute("DELETE FROM login_letter_sent WHERE guid = '%u'", lowguid);
             // sql/custom/110. ZEROED, NOT DELETED: a match has two people in
             // it, and deleting the row would take a win away from the one who
             // is still here. One statement, so the three columns cannot land
