@@ -38,6 +38,9 @@
 #include "Logging/DatabaseLogger.hpp"
 #include "ScriptObjects.h"
 
+// A companion that takes no loot: out of round robin, rolls and the coin split.
+extern bool Playerbot_CompanionTakesNoLoot(uint32 guidLow);
+
 void WorldSession::HandleAutostoreLootItemOpcode(WorldPacket & recv_data)
 {
     DEBUG_LOG("WORLD: CMSG_AUTOSTORE_LOOT_ITEM");
@@ -362,23 +365,30 @@ void WorldSession::HandleLootMoneyOpcode(WorldPacket & /*recv_data*/)
 
     if (pLoot)
     {
-        pLoot->NotifyMoneyRemoved();
+        bool const shared = shareMoneyWithGroup && player->GetGroup();      //item can be looted only single player
 
-        if (shareMoneyWithGroup && player->GetGroup())           //item can be looted only single player
+        std::vector<Player*> playersNear;
+        if (shared)
         {
-            Group *group = player->GetGroup();
-
-            std::vector<Player*> playersNear;
-            for (GroupReference *itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+            for (GroupReference *itr = player->GetGroup()->GetFirstMember(); itr != nullptr; itr = itr->next())
             {
                 Player* playerGroup = itr->getSource();
-                if (!playerGroup)
+                if (!playerGroup || Playerbot_CompanionTakesNoLoot(playerGroup->GetGUIDLow()))
                     continue;
                 //if (player->IsWithinDistInMap(playerGroup, sWorld.getConfig(CONFIG_FLOAT_GROUP_XP_DISTANCE), false))
                 if(player->IsWithinLootXPDist(playerGroup))
                     playersNear.push_back(playerGroup);
             }
 
+            // Only a companion here: no player in range, so the coin stays.
+            if (playersNear.empty())
+                return;
+        }
+
+        pLoot->NotifyMoneyRemoved();
+
+        if (shared)
+        {
             uint32 money_per_player = uint32((pLoot->gold) / (playersNear.size()));
 
             for (const auto i : playersNear)

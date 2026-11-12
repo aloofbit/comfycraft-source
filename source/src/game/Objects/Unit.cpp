@@ -1487,16 +1487,17 @@ void Unit::Kill(Unit* pVictim, SpellEntry const *spellProto, bool durabilityLoss
         pPlayerVictim->GiveNegativeXP(5, pPlayerVictim); // Percentage
     }
 
-    // Death.XPLossPercent: a death takes that share of the XP earned in the
-    // current level. Not in a battleground, not when a player (or a player's
-    // pet) did the kill, and not for bots. A fall or lava death taps the
-    // victim itself, so it counts as PvE.
+    // Death.XPLossPercent: a death takes that share of a whole level, down to
+    // the start of the current level at most. Not in a battleground, not when
+    // a player (or a player's pet) did the kill, and not for bots. A fall or
+    // lava death taps the victim itself, so it counts as PvE.
     if (pPlayerVictim && !damageFromSpiritOfRedemptionTalent && !pPlayerVictim->InBattleGround() &&
         (!pPlayerTap || pPlayerTap == pPlayerVictim) && !Script_IsAIControlled(pPlayerVictim))
     {
         uint32 const percent = std::min<uint32>(std::max(sConfig.GetIntDefault("Death.XPLossPercent", 0), 0), 100);
         uint32 const curXP = pPlayerVictim->GetUInt32Value(PLAYER_XP);
-        if (uint32 const lost = curXP * percent / 100)
+        uint32 const levelXP = pPlayerVictim->GetUInt32Value(PLAYER_NEXT_LEVEL_XP);
+        if (uint32 const lost = std::min<uint32>(levelXP * percent / 100, curXP))
         {
             pPlayerVictim->SetUInt32Value(PLAYER_XP, curXP - lost);
             ChatHandler(pPlayerVictim).PSendSysMessage("You lost %u experience.", lost);

@@ -397,16 +397,11 @@ bool StoreLootAction::Execute(Event& event)
         bot->GetSession()->HandleLootMoneyOpcode(packet);
     }
 
-    // A COMPANION OPENS THE CORPSE AND TAKES NOTHING.
+    // A COMPANION TAKES NOTHING.
     //
-    // Opening is what starts the group's rolls and splits the money, so the
-    // owner sees the roll window whichever party member got there first. But
-    // the items stay on the corpse for the owner: a hire that fills its bags
-    // with the greys and greens that would have round-robined to a real
-    // player is a hire that costs loot, and one that picks up a Mining Pick
-    // and equips it as a weapon - which a tank companion did on 2026-09-09 -
-    // is worse than useless. Rolls are passed for the same reason, in
-    // RollAction::CalculateRollVote.
+    // It opens no loot object by itself (ShouldLootObject), so this is a backstop.
+    // A tank companion looted a Mining Pick and equipped it as a weapon on
+    // 2026-09-09.
     if (!sPlayerbotAIConfig.companionTakesLoot && CompanionOwnership::IsCompanion(bot->GetGUIDLow()))
     {
         sLog.outDebug("[BOT LOOT] %s: companion, leaving %u item(s) on the corpse", bot->GetName(), items);

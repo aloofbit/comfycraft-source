@@ -6,6 +6,7 @@
 #include "playerbot/strategy/actions/GenericSpellActions.h"
 #include "playerbot/strategy/actions/MovementActions.h"
 #include "playerbot/strategy/actions/ReachTargetActions.h"
+#include "playerbot/strategy/values/PartyMemberToHeal.h"
 
 using namespace ai;
 
@@ -47,9 +48,7 @@ static bool SeatedInLeash(PlayerbotAI* ai)
     Player* master = ai->GetMaster();
     if (master && master != bot)
     {
-        const float leash = sPlayerbotAIConfig.EatDrinkMinDistance +
-            ((bot->GetGroup() && bot->GetGroup()->IsRaidGroup()) ? sPlayerbotAIConfig.raidFollowDistance
-                                                                 : sPlayerbotAIConfig.followDistance);
+        const float leash = PartyMemberToHeal::MealLeash(ai);
 
         if (bot->GetMapId() != master->GetMapId() || !bot->IsWithinDist(master, leash))
             return false;
@@ -110,6 +109,10 @@ bool ai::AllowedWhileHealerDrinks(Action* action)
         return true;
 
     if (dynamic_cast<ReachPartyMemberToHealAction*>(action))
+        return true;
+
+    // HealerSpotFault holds its danger faults for a meal, so this is a walk to a patient.
+    if (dynamic_cast<HealerMoveAction*>(action))
         return true;
 
     if (dynamic_cast<FollowChatShortcutAction*>(action))

@@ -235,6 +235,11 @@ void DynamicObject::AddAffected(Unit* unit)
     m_affected[unit->GetObjectGuid()] = 0;
 }
 
+bool DynamicObject::IsAffecting(Unit* unit) const
+{
+    return unit && m_affected.find(unit->GetObjectGuid()) != m_affected.end();
+}
+
 void DynamicObject::RemoveAffected(Unit* unit)
 {
     m_affected.erase(unit->GetObjectGuid());

@@ -1013,7 +1013,7 @@ namespace ai
     class HasAreaDebuffTrigger : public Trigger 
     {
     public:
-        HasAreaDebuffTrigger(PlayerbotAI* ai) : Trigger(ai, "has area debuff", 3) {}
+        HasAreaDebuffTrigger(PlayerbotAI* ai) : Trigger(ai, "has area debuff", 1) {}
         virtual bool IsActive() override;
     };
 

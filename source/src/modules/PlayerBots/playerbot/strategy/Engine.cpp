@@ -7,9 +7,12 @@
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/PerformanceMonitor.h"
 #include "playerbot/BotActionLog.h"
+#include "playerbot/HealerSpot.h"
 #include "playerbot/strategy/generic/PullStrategy.h"
 #include "playerbot/strategy/generic/UseFoodStrategy.h"
+#include "playerbot/FleeManager.h"
 #include "playerbot/strategy/actions/GenericSpellActions.h"
+#include "playerbot/strategy/actions/MovementActions.h"
 
 #ifdef BUILD_ELUNA
 #include "LuaEngine/LuaEngine.h"
@@ -179,6 +182,11 @@ bool Engine::DoNextAction(Unit* unit, int depth, bool minimal, bool isStunned)
     const bool healerDrinking = (state == BotState::BOT_STATE_COMBAT && HealerKeepsDrinking(ai)) ||
         (state == BotState::BOT_STATE_NON_COMBAT && MealKeepsBotSeated(ai));
 
+    // A healer walking to its spot finishes the walk (HealerWalkingOut). Not in the
+    // reaction engine: a flee from area damage must get through.
+    const bool healerWalkingOut = (state == BotState::BOT_STATE_COMBAT || state == BotState::BOT_STATE_NON_COMBAT) &&
+        HealerWalkingOut(ai);
+
     int iterations = 0;
     int iterationsPerTick = queue.Size() * (minimal ? (uint32)(sPlayerbotAIConfig.iterationsPerTick / 2) : sPlayerbotAIConfig.iterationsPerTick);
     bool hasBasket = false;
@@ -242,6 +250,8 @@ bool Engine::DoNextAction(Unit* unit, int depth, bool minimal, bool isStunned)
                     heldFor = "stun";
                 else if (healerDrinking && !AllowedWhileHealerDrinks(action))
                     heldFor = "meal";
+                else if (healerWalkingOut && !AllowedWhileHealerWalksOut(ai, action))
+                    heldFor = "flee walk";
 
                 bool isUseful = false;
                 if (!heldFor)
@@ -294,6 +304,7 @@ bool Engine::DoNextAction(Unit* unit, int depth, bool minimal, bool isStunned)
                     if (isPossible && relevance)
                     {
                         auto pmo4 = sPerformanceMonitor.start(PERF_MON_ACTION, "Execute", ai);
+                        ai->NoteLastStep(action->getName());
                         actionExecuted = ListenAndExecute(action, event);
                         pmo4.reset();
 
@@ -306,6 +317,9 @@ bool Engine::DoNextAction(Unit* unit, int depth, bool minimal, bool isStunned)
                         if (actionExecuted)
                         {
                             LogAction("A:%s - OK", action->getName().c_str());
+
+                            if (ai->GetMaster() && dynamic_cast<MovementAction*>(action))
+                                DebugMove(ai, action->getName());
 
                             // While a pull is running, name the action that just
                             // won the tick.
@@ -560,6 +574,7 @@ ActionResult Engine::ExecuteAction(const std::string& name, Event& event)
                 {
                     action->MakeVerbose(event.getOwner() != nullptr);
                     auto pmo4 = sPerformanceMonitor.start(PERF_MON_ACTION, "Execute", ai);
+                    ai->NoteLastStep(action->getName());
                     bool executionResult = ListenAndExecute(action, event);
                     pmo4.reset();
 

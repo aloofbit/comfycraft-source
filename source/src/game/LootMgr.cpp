@@ -41,6 +41,9 @@
 #include <mutex>
 #include <unordered_map>
 
+// A companion that takes no loot: out of round robin, rolls and the coin split.
+extern bool Playerbot_CompanionTakesNoLoot(uint32 guidLow);
+
 static eConfigFloatValues const qualityToRate[MAX_ITEM_QUALITY] =
 {
     CONFIG_FLOAT_RATE_DROP_ITEM_POOR,                                    // ITEM_QUALITY_POOR
@@ -1095,7 +1098,8 @@ bool Loot::FillLoot(uint32 loot_id, LootStore const& store, Player* loot_owner, 
     // Setting access rights for group loot case
     if (!personal && group)
     {
-        roundRobinPlayer = loot_owner->GetGUID();
+        // The owner is a companion when no player is in range at the kill.
+        roundRobinPlayer = Playerbot_CompanionTakesNoLoot(loot_owner->GetGUIDLow()) ? 0 : loot_owner->GetGUID();
         m_personal = false;
         for (GroupReference *itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
         {
@@ -1569,8 +1573,10 @@ ByteBuffer& operator<<(ByteBuffer& b, LootView const& lv)
             if (qi->is_looted || item.is_looted)
                 continue;
 
-            // Allow only the round robin player unless that player is not elligible for item
-            if (!item.freeforall && l.roundRobinPlayer != 0 && lv.viewer->GetGUID() != l.roundRobinPlayer
+            // Allow only the round robin player unless that player is not elligible for item.
+            // A personal copy has one owner, so no turn applies: the check hid it, and the
+            // corpse still showed as lootable, until the round robin player closed the window.
+            if (!item.freeforall && item.lootOwner.IsEmpty() && l.roundRobinPlayer != 0 && lv.viewer->GetGUID() != l.roundRobinPlayer
                 && lootPlayerQuestItems.find(l.roundRobinPlayer) != lootPlayerQuestItems.end())
                 continue;
 

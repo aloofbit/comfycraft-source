@@ -19,6 +19,7 @@
 #include "Maps/GridNotifiersImpl.h"
 #include "Maps/CellImpl.h"
 #include "strategy/values/LastMovementValue.h"
+#include "strategy/values/PartyMemberToHeal.h"
 #include "strategy/actions/LogLevelAction.h"
 #include "strategy/actions/SayAction.h"
 #include "strategy/actions/EmoteAction.h"
@@ -738,6 +739,9 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
         e->OnUpdateAI(this, bot->GetName());
 #endif
 
+    if (HasRealPlayerMaster())
+        NoteMealEnd();
+
     // Sitting down to eat sleeps the internal AI for as long as the meal lasts
     // - up to 27 seconds - and that sleep is deliberate: it is the only thing
     // stopping the follow strategy from standing the bot up after every
@@ -751,9 +755,7 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
     // test is a byte compare.
     if (!CanUpdateAIInternal() && bot->getStandState() == UNIT_STAND_STATE_SIT && master && IsSafe(master))
     {
-        const float leash = sPlayerbotAIConfig.EatDrinkMinDistance +
-            ((bot->GetGroup() && bot->GetGroup()->IsRaidGroup()) ? sPlayerbotAIConfig.raidFollowDistance
-                                                                 : sPlayerbotAIConfig.followDistance);
+        const float leash = PartyMemberToHeal::MealLeash(this);
 
         if (bot->GetMapId() != master->GetMapId() || !bot->IsWithinDist(master, leash))
             ResetAIInternalUpdateDelay();
@@ -3371,7 +3373,12 @@ void PlayerbotAI::DoNextAction(bool min)
         // any bot eating or drinking out of combat.
         else if (aiInternalUpdateDelay < 1000 && !HealerKeepsDrinking(this) &&
             !(!IsStateActive(BotState::BOT_STATE_COMBAT) && MealKeepsBotSeated(this)))
+        {
+            if (bot->IsSitState())
+                lastStep = "the stand line in the update";
+
             bot->SetStandState(UNIT_STAND_STATE_STAND);
+        }
 
         if (!group && sRandomPlayerbotMgr.IsFreeBot(bot) && !IsRealPlayer())
         {
@@ -3401,6 +3408,48 @@ void PlayerbotAI::DoNextAction(bool min)
     {
         return;
     }
+}
+
+void PlayerbotAI::NoteLastStep(const std::string& name)
+{
+    if (HasRealPlayerMaster())
+        lastStep = name;
+}
+
+// WHY A MEAL ENDED (2026-11-05). The log showed a drink end with no line for the
+// cause. The auras end inside the core, so this watches for them to go and writes
+// the state at that moment with `debug` on. Standing with the last step named: that
+// step stood the bot. Seated: the aura ended by itself.
+void PlayerbotAI::NoteMealEnd()
+{
+    const bool drinking = bot->HasAura(24355) || bot->HasAuraType(SPELL_AURA_OBS_MOD_MANA);
+    if (drinking || bot->HasAura(24005) || bot->HasAuraType(SPELL_AURA_OBS_MOD_HEALTH))
+    {
+        if (!mealStartMs)
+            mealStartMs = WorldTimer::getMSTime() | 1;
+        return;
+    }
+
+    if (!mealStartMs)
+        return;
+
+    const uint32 tenths = WorldTimer::getMSTimeDiff(mealStartMs, WorldTimer::getMSTime()) / 100;
+    mealStartMs = 0;
+
+    if (!master || !HasStrategy("debug", BotState::BOT_STATE_NON_COMBAT))
+        return;
+
+    std::ostringstream out;
+    out << "meal end: after " << tenths / 10 << "." << tenths % 10 << " s, "
+        << (bot->IsStandState() ? "standing" : "seated")
+        << ", mana " << (uint32)bot->GetPowerPercent() << "%, health " << (uint32)bot->GetHealthPercent() << "%"
+        << ", engine " << (IsStateActive(BotState::BOT_STATE_COMBAT) ? "combat" : "non combat")
+        << ", server combat " << (sServerFacade.IsInCombat(bot) ? "yes" : "no")
+        << ", mobs on it " << bot->getAttackers().size();
+    if (master->GetMapId() == bot->GetMapId())
+        out << ", " << master->GetName() << " " << (uint32)sServerFacade.GetDistance2d(bot, master) << " yd";
+    out << ", last step: " << (lastStep.empty() ? "none" : lastStep);
+    TellPlayerNoFacing(master, out.str(), PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, true, false);
 }
 
 void PlayerbotAI::ReInitCurrentEngine()
@@ -4953,11 +5002,18 @@ static std::vector<std::string> WriteDebugLogLine(Player* bot, const std::string
     return chat;
 }
 
+// Long lines for the log. They do not go to chat.
+static bool IsFileOnlyDebugLine(const std::string& text)
+{
+    return text.rfind("spot: ", 0) == 0 || text.rfind("move: ", 0) == 0;
+}
+
 static bool IsEngineDebugLine(const std::string& text)
 {
     return text.rfind("try: ", 0) == 0 || text.rfind("do: ", 0) == 0 || text.rfind("why: ", 0) == 0 ||
         text.rfind("reach: ", 0) == 0 || text.rfind("slow: ", 0) == 0 || text.rfind("target: ", 0) == 0 ||
-        text.rfind("heal reach: ", 0) == 0 || text.rfind("heal follow: ", 0) == 0 || text.rfind("heal flee: ", 0) == 0;
+        text.rfind("heal reach: ", 0) == 0 || text.rfind("heal follow: ", 0) == 0 || text.rfind("heal flee: ", 0) == 0 ||
+        text.rfind("heal move: ", 0) == 0;
 }
 
 bool PlayerbotAI::TellPlayerNoFacing(Player* player, std::string text, PlayerbotSecurityLevel securityLevel, bool isPrivate, bool noRepeat, bool ignoreSilent)
@@ -4991,6 +5047,9 @@ bool PlayerbotAI::TellPlayerNoFacing(Player* player, std::string text, Playerbot
     if (!sayingCollapsed && HasStrategy("debug", BotState::BOT_STATE_NON_COMBAT))
     {
         std::vector<std::string> chat = WriteDebugLogLine(bot, text);
+        if (IsFileOnlyDebugLine(text))
+            return true;
+
         if (IsEngineDebugLine(text))
         {
             // Quiet: the file only. The lines in chat dropped the owner's frame rate.

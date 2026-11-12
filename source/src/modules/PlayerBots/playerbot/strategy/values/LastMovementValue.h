@@ -30,6 +30,12 @@ namespace ai
             fleeCount = other.fleeCount;
             lastFleeAttempt = other.lastFleeAttempt;
             lastNoFleePoint = other.lastNoFleePoint;
+            fleeWalkUntil = other.fleeWalkUntil;
+            walkForSight = other.walkForSight;
+            healerWalks = other.healerWalks;
+            lastHealerWalk = other.lastHealerWalk;
+            lastHealerNoSpot = other.lastHealerNoSpot;
+            healerIgnoredMob = other.healerIgnoredMob;
             moveEvent = Event();
         }
 
@@ -43,6 +49,12 @@ namespace ai
             fleeCount = 0;
             lastFleeAttempt = 0;
             lastNoFleePoint = 0;
+            fleeWalkUntil = 0;
+            walkForSight = false;
+            healerWalks = 0;
+            lastHealerWalk = 0;
+            lastHealerNoSpot = 0;
+            healerIgnoredMob = ObjectGuid();
             lastMoveShort = WorldPosition();
             nextTeleport = 0;
             moveEvent = Event();
@@ -73,6 +85,8 @@ namespace ai
         Unit* lastFollow;
         uint32 lastAreaTrigger;
         uint32 lastTransportEntry;
+        // The fleeing mob the log last named (NoteIgnoredMob).
+        ObjectGuid healerIgnoredMob;
         time_t lastFlee;
         // Number of flee actions dispatched in quick succession (within returnDelay of each
         // other). Used to detect a "subsequent" flee loop so spellcasting can take priority.
@@ -83,6 +97,15 @@ namespace ai
         // When a flee last found no point. `enemy too close for spell` stays quiet
         // for a while after, so the bot fights where it stands.
         time_t lastNoFleePoint;
+        // Server ms time by which a healer's walk has ended. 0 = no walk. See HealerWalkingOut.
+        uint32 fleeWalkUntil;
+        // That walk is for sight of a patient, so it stops the moment the fault clears.
+        bool walkForSight;
+        // Walks of `healer move` in quick succession, and when the last one started.
+        uint32 healerWalks;
+        time_t lastHealerWalk;
+        // When a `healer move` search last found no spot.
+        time_t lastHealerNoSpot;
         TravelPath lastPath;
         WorldPosition lastMoveShort;
         time_t nextTeleport;

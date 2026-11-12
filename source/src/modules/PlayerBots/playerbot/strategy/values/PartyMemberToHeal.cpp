@@ -1,5 +1,6 @@
 
 #include "playerbot/playerbot.h"
+#include "playerbot/HealerSpot.h"
 #include "PartyMemberToHeal.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/ServerFacade.h"
@@ -223,6 +224,34 @@ bool PartyMemberToHeal::WorthWalkingTo(PlayerbotAI* ai, Unit* patient)
         return false;
 
     return patient->IsInCombat() || ai->GetBot()->IsInCombat();
+}
+
+bool PartyMemberToHeal::HealerHealsFirst(PlayerbotAI* ai)
+{
+    Player* bot = ai->GetBot();
+    if (bot->GetHealthPercent() < 40.0f && !MobOnHealer(bot))
+        return false;
+
+    // A healer that cannot cast has no heal to put first.
+    if (bot->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_SILENCED) || bot->GetPowerPercent(POWER_MANA) < 5.0f)
+        return false;
+
+    Unit* patient = ai->GetAiObjectContext()->GetValue<Unit*>("party member to heal")->Get();
+    if (!patient || !patient->IsAlive() || patient->GetHealthPercent() >= 60.0f)
+        return false;
+
+    return sServerFacade.GetDistance2d(bot, patient) <= HealSpellRange() && bot->IsWithinLOSInMap(patient, true);
+}
+
+float PartyMemberToHeal::MealLeash(PlayerbotAI* ai)
+{
+    Player* bot = ai->GetBot();
+    if (PlayerbotAI::IsHeal(bot) && bot->GetMap()->IsDungeon())
+        return 30.0f;
+
+    return sPlayerbotAIConfig.EatDrinkMinDistance +
+        ((bot->GetGroup() && bot->GetGroup()->IsRaidGroup()) ? sPlayerbotAIConfig.raidFollowDistance
+                                                             : sPlayerbotAIConfig.followDistance);
 }
 
 bool PartyMemberToHeal::HealerHasPatient(PlayerbotAI* ai)

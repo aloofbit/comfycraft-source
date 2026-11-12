@@ -192,10 +192,7 @@ ItemQualifier RollAction::GetRollItem(ObjectGuid lootGuid, uint32 slot)
 
 RollVote RollAction::CalculateRollVote(ItemQualifier& itemQualifier)
 {
-    // A companion passes on everything it is not told to roll on. This is
-    // the automatic vote only - "roll need" from the owner still carries the
-    // vote it was given, since that path never reaches here. The reasoning is
-    // StoreLootAction's: what drops is the owner's.
+    // Group::StartLootRoll gives a companion no roll. This stays as a backstop.
     if (!sPlayerbotAIConfig.companionTakesLoot && CompanionOwnership::IsCompanion(bot->GetGUIDLow()))
         return ROLL_PASS;
 

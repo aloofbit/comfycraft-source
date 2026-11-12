@@ -30,6 +30,9 @@ namespace ai
         static bool MinimalMove(PlayerbotAI* ai);
         static bool UseTransport(PlayerbotAI* ai, uint32 entry, WorldPosition dockPosition, WorldPosition exitPosition, bool doTeleport);
     protected:
+        // True for a move that may cancel a cast. See isUseful.
+        virtual bool WalksDuringCast() { return false; }
+
         // True for the pull's own movers, which are the only actions allowed to
         // move the bot while a pull is running - see isUseful.
         bool IsPullMovement();
@@ -166,6 +169,10 @@ namespace ai
     public:
         FleeAction(PlayerbotAI* ai, float distance = sPlayerbotAIConfig.spellDistance) : MovementAction(ai, "flee"), distance(distance) {}
         virtual bool Execute(Event& event) override;
+        virtual bool isUseful() override;
+
+    protected:
+        bool WalksDuringCast() override;
 
     private:
         float distance;
@@ -198,6 +205,26 @@ namespace ai
         MoveOutOfEnemyContactAction(PlayerbotAI* ai) : MovementAction(ai, "move out of enemy contact") {}
         virtual bool Execute(Event& event) override;
         virtual bool isUseful() override;
+    };
+
+    // The one mover of a healer led by a player. HealerSpot.h has the rules.
+    class HealerMoveAction : public MovementAction
+    {
+    public:
+        HealerMoveAction(PlayerbotAI* ai) : MovementAction(ai, "healer move") {}
+        virtual bool Execute(Event& event) override;
+        virtual bool isUseful() override;
+
+    protected:
+        bool WalksDuringCast() override;
+    };
+
+    // A healer with a mob on it says so in party. HealerMobOnItTrigger has the timing.
+    class HealerCallForHelpAction : public Action
+    {
+    public:
+        HealerCallForHelpAction(PlayerbotAI* ai) : Action(ai, "healer call for help") {}
+        virtual bool Execute(Event& event) override;
     };
 
     // A ranged bot steps out of reach of a rooted mob that hits it

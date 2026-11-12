@@ -19,8 +19,10 @@
 #include "GameObject.h"
 #include "vmap/GameObjectModel.h"
 #include "GridMap.h"
+#include "MapManager.h"
 
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <list>
 #include <mutex>
@@ -40,6 +42,7 @@ namespace
 
     float  const BEAT_RADIUS         = 60.0f;   // creatures sent again around each player
     float  const BEAT_LIFT           = 0.05f;   // the hop in lift mode: a real delta, invisible
+    float  const BEAT_FLOOR_RANGE    = 0.2f;    // the floor is sent when this close to the unit's z
     uint32 const BEAT_EVERY_DEFAULT  = 5000;
 
     std::atomic<uint8>  g_beatMode{uint8(ArrivalFloor::BeatMode::Plain)};
@@ -248,11 +251,25 @@ namespace
         return !address.empty() && address != "disconnected/bot";
     }
 
+    // The z the beat sends. A stock spawn z is often above the floor, and a unit
+    // sent there drops back to the floor on the client: a hop on each beat. So
+    // the server's floor is sent when it is close. A unit that flies, hovers or
+    // swims, or has no floor close by, keeps its own z.
+    float BeatHeight(Unit* u)
+    {
+        float const z = u->GetPositionZ();
+        if (u->IsInWater() || u->m_movementInfo.HasMovementFlag(MOVEFLAG_FLYING | MOVEFLAG_LEVITATING | MOVEFLAG_HOVER | MOVEFLAG_SWIMMING))
+            return z;
+
+        float const floor = u->GetMap()->GetHeight(u->GetPositionX(), u->GetPositionY(), z + BEAT_FLOOR_RANGE, true, 2.0f * BEAT_FLOOR_RANGE);
+        return HasHeight(floor) && std::fabs(floor - z) <= BEAT_FLOOR_RANGE ? floor : z;
+    }
+
     void SendBeat(Unit* u, ArrivalFloor::BeatMode mode)
     {
         float const x = u->GetPositionX();
         float const y = u->GetPositionY();
-        float const z = u->GetPositionZ();
+        float const z = BeatHeight(u);
         float const o = u->GetOrientation();
 
         if (mode == ArrivalFloor::BeatMode::Lift)
@@ -655,5 +672,100 @@ bool ComfyCommands::HandleFloorProbeCommand(ChatHandler* handler, char* args)
 
     if (!hits)
         say("%s", "- No gameobject under this point.");
+    return true;
+}
+
+// .floorbench <map> <x> <y> <z> [rounds]: the mean time of one height query and
+// one line-of-sight query at a place, with the terrain and static building
+// search and the gameobject search timed apart. It tests a 9 by 9 lattice over
+// a box 40 yd wide around the point. A height ray starts at z and looks down
+// DEFAULT_HEIGHT_SEARCH yd, as Map::GetHeight does by default. A sight line runs
+// through the centre, at z, to the opposite lattice point. It loads the grids
+// it needs. Compare results from the same build: the default build is /Od.
+bool ComfyCommands::HandleFloorBenchCommand(ChatHandler* handler, char* args)
+{
+    uint32 mapId = 0;
+    float cx = 0.0f, cy = 0.0f, cz = 0.0f;
+    uint32 rounds = 2000;
+    if (!handler->ExtractUInt32(&args, mapId) || !handler->ExtractFloat(&args, cx) ||
+        !handler->ExtractFloat(&args, cy) || !handler->ExtractFloat(&args, cz) ||
+        (*args && (!handler->ExtractUInt32(&args, rounds) || !rounds || rounds > 100000)))
+    {
+        handler->SendSysMessage(".floorbench <map> <x> <y> <z> [rounds, 1 to 100000]");
+        handler->SetSentErrorMessage(true);
+        return false;
+    }
+
+    Map* map = sMapMgr.FindMap(mapId);
+    if (!map || map->Instanceable())
+    {
+        handler->SendSysMessage("That map is not a loaded continent.");
+        handler->SetSentErrorMessage(true);
+        return false;
+    }
+
+    uint32 const side = 9;
+    float const step = 5.0f;
+    std::vector<G3D::Vector2> points;
+    for (uint32 i = 0; i < side; ++i)
+        for (uint32 j = 0; j < side; ++j)
+        {
+            G3D::Vector2 const p(cx + (float(i) - 4.0f) * step, cy + (float(j) - 4.0f) * step);
+            points.push_back(p);
+            map->LoadGrid(Cell(MaNGOS::ComputeCellPair(p.x, p.y)));
+        }
+
+    using Clock = std::chrono::steady_clock;
+    auto nsPerQuery = [&points, rounds](auto&& query)
+    {
+        Clock::time_point const start = Clock::now();
+        for (uint32 r = 0; r < rounds; ++r)
+            for (size_t i = 0; i < points.size(); ++i)
+                query(i);
+        double const ns = double(std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start).count());
+        return ns / double(uint64(rounds) * points.size());
+    };
+
+    size_t const last = points.size() - 1;
+    uint32 floors = 0, blocked = 0;
+
+    double const heightStatic = nsPerQuery([&](size_t i)
+    {
+        map->GetTerrain()->GetHeightStatic(points[i].x, points[i].y, cz, true, DEFAULT_HEIGHT_SEARCH);
+    });
+    double const heightDynamic = nsPerQuery([&](size_t i)
+    {
+        map->GetDynamicTreeHeight(points[i].x, points[i].y, cz, DEFAULT_HEIGHT_SEARCH);
+    });
+    double const sightStatic = nsPerQuery([&](size_t i)
+    {
+        map->isInLineOfSight(points[i].x, points[i].y, cz, points[last - i].x, points[last - i].y, cz, false);
+    });
+    double const sightDynamic = nsPerQuery([&](size_t i)
+    {
+        map->CheckDynamicTreeLoS(points[i].x, points[i].y, cz, points[last - i].x, points[last - i].y, cz);
+    });
+
+    for (size_t i = 0; i < points.size(); ++i)
+    {
+        if (map->GetDynamicTreeHeight(points[i].x, points[i].y, cz, DEFAULT_HEIGHT_SEARCH) > INVALID_HEIGHT)
+            ++floors;
+        if (i != last - i && !map->CheckDynamicTreeLoS(points[i].x, points[i].y, cz, points[last - i].x, points[last - i].y, cz))
+            ++blocked;
+    }
+
+    char line[256];
+    snprintf(line, sizeof(line), "Floor bench: map %u (%.1f, %.1f, %.1f), %u queries each.",
+             mapId, cx, cy, cz, uint32(uint64(rounds) * points.size()));
+    handler->SendSysMessage(line);
+    sLog.outString("FloorBench: %s", line);
+    snprintf(line, sizeof(line), "Height: static %.0f ns, gameobjects %.0f ns (%u of %u points hit one).",
+             heightStatic, heightDynamic, floors, uint32(points.size()));
+    handler->SendSysMessage(line);
+    sLog.outString("FloorBench: %s", line);
+    snprintf(line, sizeof(line), "Sight: static %.0f ns, gameobjects %.0f ns (%u of %u lines blocked).",
+             sightStatic, sightDynamic, blocked, uint32(points.size()) - 1);
+    handler->SendSysMessage(line);
+    sLog.outString("FloorBench: %s", line);
     return true;
 }

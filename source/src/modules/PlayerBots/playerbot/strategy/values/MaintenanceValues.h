@@ -2,6 +2,7 @@
 #include "playerbot/strategy/Value.h"
 #include "ItemUsageValue.h"
 #include "BudgetValues.h"
+#include "PartyMemberToHeal.h"
 
 #include <algorithm>
 
@@ -182,16 +183,9 @@ namespace ai
             if (!bot->IsWithinDist(master, sPlayerbotAIConfig.EatDrinkMaxDistance))
                 return true;
 
-            if (!master->IsMoving())
-                return true;
-
-            float minDistance = sPlayerbotAIConfig.EatDrinkMinDistance;
-            if (!bot->GetGroup()->IsRaidGroup())
-                minDistance += sPlayerbotAIConfig.followDistance;
-            else
-                minDistance += sPlayerbotAIConfig.raidFollowDistance;
-            
-            if (bot->IsWithinDist(master, minDistance))
+            // Past the leash a seated bot stands at once (SeatedInLeash), so it walks in
+            // first. The master moving or not made no difference to that.
+            if (bot->IsWithinDist(master, PartyMemberToHeal::MealLeash(ai)))
                 return true;
 
             return false;
@@ -221,16 +215,9 @@ namespace ai
             if (!bot->IsWithinDist(master, sPlayerbotAIConfig.EatDrinkMaxDistance))
                 return true;
 
-            if (!master->IsMoving())
-                return true;
-
-            float minDistance = sPlayerbotAIConfig.EatDrinkMinDistance;
-            if (!bot->GetGroup()->IsRaidGroup())
-                minDistance += sPlayerbotAIConfig.followDistance;
-            else
-                minDistance += sPlayerbotAIConfig.raidFollowDistance;
-
-            if (bot->IsWithinDist(master, minDistance))
+            // Past the leash a seated bot stands at once (SeatedInLeash), so it walks in
+            // first. The master moving or not made no difference to that.
+            if (bot->IsWithinDist(master, PartyMemberToHeal::MealLeash(ai)))
                 return true;
 
             return false;

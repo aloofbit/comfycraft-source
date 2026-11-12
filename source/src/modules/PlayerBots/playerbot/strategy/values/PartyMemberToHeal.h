@@ -46,6 +46,15 @@ namespace ai
         // A healer seated with a drink walks only below AlmostFullHealth.
         static bool WorthWalkingTo(PlayerbotAI* ai, Unit* patient);
 
+        // A heal comes before moving out of danger: the patient is in heal range, in
+        // sight and under 60%. Not when the healer is under 40% with no mob on it
+        // (2026-11-05, the owner).
+        static bool HealerHealsFirst(PlayerbotAI* ai);
+
+        // How far from its master a bot stays seated with food or a drink. A healer in
+        // a dungeon stays to 30 yd.
+        static float MealLeash(PlayerbotAI* ai);
+
         // A healer in a group whose "party member to heal" is WorthWalkingTo.
         // Follow holds still for it (FollowAction::isUseful).
         static bool HealerHasPatient(PlayerbotAI* ai);

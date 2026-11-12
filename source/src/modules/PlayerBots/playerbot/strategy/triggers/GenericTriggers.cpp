@@ -1,6 +1,9 @@
 
 #include "playerbot/playerbot.h"
+#include "playerbot/HealerSpot.h"
 #include "GenericTriggers.h"
+#include "playerbot/strategy/values/LastMovementValue.h"
+#include "playerbot/strategy/values/PartyMemberToHeal.h"
 #include "LootTriggers.h"
 #include "playerbot/LootObjectStack.h"
 #include "playerbot/PlayerbotAIConfig.h"
@@ -980,7 +983,23 @@ bool IsFallingFarTrigger::IsActive()
 
 bool HasAreaDebuffTrigger::IsActive()
 {
-    return AI_VALUE2(bool, "has area debuff", "self target");
+    if (!AI_VALUE2(bool, "has area debuff", "self target"))
+        return false;
+
+    // A healer led by a player stays for a mob on it, so the tank can pull the mob
+    // off, and stays while a heal comes first (2026-11-05, the owner).
+    if (ai->HasRealPlayerMaster() && PlayerbotAI::IsHeal(bot))
+    {
+        if (MobOnHealer(bot) || PartyMemberToHeal::HealerHealsFirst(ai))
+            return false;
+
+        // A search that found no spot waits 3 s, as `healer move` does.
+        const time_t noPoint = AI_VALUE(LastMovement&, "last movement").lastNoFleePoint;
+        if (noPoint && time(nullptr) - noPoint < 3)
+            return false;
+    }
+
+    return true;
 }
 
 bool ReturnToStayPositionTrigger::IsActive()

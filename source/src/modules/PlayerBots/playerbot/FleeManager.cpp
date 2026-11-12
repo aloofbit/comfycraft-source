@@ -7,6 +7,7 @@
 #include "playerbot/ServerFacade.h"
 #include "strategy/values/PartyMemberToHeal.h"
 #include "Maps/PathFinder.h"
+#include "HealerSpot.h"
 #include <iomanip>
 #include <sstream>
 
@@ -100,6 +101,13 @@ static float angleBetween(float a, float b)
 // HealerFightGap (15) from every mob in the fight, and within HealSpellRange
 // less HealChaseMargin (35) of "party member to heal" and in its sight. With no
 // such spot it takes one by the rules above.
+//
+// THE WALK STAYS OUT OF THE FIGHT (2026-11-05). In a Deadmines fight a priest took a
+// spot 12 yd out, 150 degrees round, and ran through its owner and the mobs to get
+// there. The walk may not pass within WALK_CLEAR of the player or a mob in the fight.
+// A bot that starts nearer may not get nearer.
+//
+// A healer led by a player does not use this ring. See HealerSpot.h.
 bool ai::FindMasterRingSpot(PlayerbotAI* ai, float& rx, float& ry, float& rz, std::string& note)
 {
     Player* bot = ai->GetBot();
@@ -107,7 +115,23 @@ bool ai::FindMasterRingSpot(PlayerbotAI* ai, float& rx, float& ry, float& rz, st
     if (!master || master == bot || !master->IsInWorld() || master->GetMapId() != bot->GetMapId())
         return false;
 
+    if (LedHealer(ai))
+        return FindHealerSpot(ai, HealerSpotFault(ai), rx, ry, rz, note);
+
     const std::list<Unit*> idle = IdleHostiles(ai);
+
+    // A spot is clear of hostile area damage by 2 yd (2026-11-05).
+    std::list<DynamicObject*> areas;
+    for (ObjectGuid const& guid : ai->GetAiObjectContext()->GetValue<std::list<ObjectGuid>>("nearest dynamic objects")->Get())
+    {
+        DynamicObject* area = bot->GetMap()->GetDynamicObject(guid);
+        if (!area)
+            continue;
+
+        SpellEntry const* spell = sSpellTemplate.LookupEntry<SpellEntry>(area->GetSpellId());
+        if (spell && !IsPositiveEffect(spell, area->GetEffIndex()) && area->IsHostileTo(bot))
+            areas.push_back(area);
+    }
 
     std::list<Unit*> fighting;
     for (ObjectGuid const& guid : ai->GetAiObjectContext()->GetValue<std::list<ObjectGuid>>("attackers")->Get())
@@ -175,6 +199,8 @@ bool ai::FindMasterRingSpot(PlayerbotAI* ai, float& rx, float& ry, float& rz, st
                     crowded = crowded || sServerFacade.GetDistance2d(unit, x, y) < fightGap;
                 for (Player* other : others)
                     crowded = crowded || sServerFacade.GetDistance2d(other, x, y) < 5.0f;
+                for (DynamicObject* area : areas)
+                    crowded = crowded || std::hypot(area->GetPositionX() - x, area->GetPositionY() - y) < area->GetRadius() + 2.0f;
                 if (crowded)
                     continue;
 
@@ -204,9 +230,25 @@ bool ai::FindMasterRingSpot(PlayerbotAI* ai, float& rx, float& ry, float& rz, st
                 if ((path.getPathType() & PATHFIND_NORMAL) && path.Length() > 1.5f * bot->GetDistance(x, y, z) + 5.0f)
                     continue;
 
+                // The nearest this walk comes to a unit, or -1 if that is too near.
+                auto walkGap = [&](Unit* unit) -> float
+                {
+                    const float gap = WalkGap(bot, path, x, y, z, unit->GetPositionX(), unit->GetPositionY());
+                    const float start = sServerFacade.GetDistance2d(bot, unit);
+                    return gap < std::min(start - 0.5f, WALK_CLEAR) ? -1.0f : gap;
+                };
+
+                const float masterGap = walkGap(master);
+                bool crossesFight = masterGap < 0.0f;
+                for (Unit* unit : fighting)
+                    crossesFight = crossesFight || walkGap(unit) < 0.0f;
+                if (crossesFight)
+                    continue;
+
                 std::ostringstream out;
                 out << std::fixed << std::setprecision(0) << radius << " yd from " << master->GetName() << ", "
-                    << (offset * 180.0f / M_PI_F) << " deg round from its own side";
+                    << (offset * 180.0f / M_PI_F) << " deg round from its own side, walk passes "
+                    << masterGap << " yd from " << master->GetName();
                 if (healerPass && patient && patient != master)
                     out << ", " << sServerFacade.GetDistance2d(patient, x, y) << " yd from " << patient->GetName();
                 note = out.str();
@@ -224,6 +266,54 @@ bool ai::FindMasterRingSpot(PlayerbotAI* ai, float& rx, float& ry, float& rz, st
         return true;
 
     return search(false);
+}
+
+void ai::DebugMove(PlayerbotAI* ai, const std::string& name)
+{
+    if (!ai->HasStrategy("debug", BotState::BOT_STATE_NON_COMBAT))
+        return;
+
+    Player* bot = ai->GetBot();
+    Player* master = ai->GetMaster();
+    if (!master || master == bot || !master->IsInWorld() || master->GetMapId() != bot->GetMapId())
+        return;
+
+    Unit* fight = nullptr;
+    for (ObjectGuid const& guid : ai->GetAiObjectContext()->GetValue<std::list<ObjectGuid>>("attackers")->Get())
+    {
+        Unit* unit = ai->GetUnit(guid);
+        if (unit && sServerFacade.IsAlive(unit) && !MobFleeing(unit) &&
+            (!fight || sServerFacade.GetDistance2d(bot, unit) < sServerFacade.GetDistance2d(bot, fight)))
+            fight = unit;
+    }
+
+    Unit* fleeing = nullptr;
+    for (ObjectGuid const& guid : ai->GetAiObjectContext()->GetValue<std::list<ObjectGuid>>("possible targets no los")->Get())
+    {
+        Unit* unit = ai->GetUnit(guid);
+        if (unit && unit->GetTypeId() == TYPEID_UNIT && sServerFacade.IsAlive(unit) && MobFleeing(unit) &&
+            (!fleeing || sServerFacade.GetDistance2d(bot, unit) < sServerFacade.GetDistance2d(bot, fleeing)))
+            fleeing = unit;
+    }
+
+    Unit* idle = nullptr;
+    for (Unit* unit : IdleHostiles(ai))
+        if (!idle || sServerFacade.GetDistance2d(bot, unit) < sServerFacade.GetDistance2d(bot, idle))
+            idle = unit;
+
+    std::ostringstream out;
+    out << std::fixed << std::setprecision(1) << "move: " << name << ", me " << bot->GetPositionX() << " " << bot->GetPositionY() << " " << bot->GetPositionZ()
+        << ", " << master->GetName() << " " << master->GetPositionX() << " " << master->GetPositionY() << " " << master->GetPositionZ()
+        << ", " << sServerFacade.GetDistance2d(bot, master) << " yd, heal sight " << (bot->IsWithinLOSInMap(master, true) ? "yes" : "no")
+        << ", spot fault " << HealerFaultName(HealerSpotFault(ai));
+    if (fight)
+        out << ", nearest fight " << fight->GetName() << " " << sServerFacade.GetDistance2d(bot, fight) << " yd";
+    if (fleeing)
+        out << ", nearest fleeing " << fleeing->GetName() << " " << sServerFacade.GetDistance2d(bot, fleeing) << " yd";
+    if (idle)
+        out << ", nearest idle " << idle->GetName() << " " << sServerFacade.GetDistance2d(bot, idle) << " yd aggro " << idle->GetAttackDistance(bot)
+            << (sServerFacade.isMoving(idle) ? " walking" : " standing");
+    ai->TellPlayerNoFacing(master, out.str(), PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, true, false);
 }
 
 // A STEP AWAY FROM A ROOTED MOB (2026-10-22).

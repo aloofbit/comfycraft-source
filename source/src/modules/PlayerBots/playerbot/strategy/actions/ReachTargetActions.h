@@ -2,6 +2,7 @@
 
 #include "playerbot/strategy/Action.h"
 #include "MovementActions.h"
+#include "playerbot/HealerSpot.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/strategy/generic/PullStrategy.h"
@@ -327,6 +328,12 @@ namespace ai
 	{
     public:
         ReachSpellAction(PlayerbotAI* ai) : ReachTargetAction(ai, "reach spell", ai->GetRange("spell")) {}
+
+        // A healer led by a player does not walk for a wand or a shackle in a fight.
+        virtual bool isUseful() override
+        {
+            return !(ai->IsStateActive(BotState::BOT_STATE_COMBAT) && LedHealer(ai)) && ReachTargetAction::isUseful();
+        }
     };
 
     class ReachPullAction : public ReachTargetAction
@@ -374,8 +381,11 @@ namespace ai
         ReachPartyMemberToHealAction(PlayerbotAI* ai) : ReachTargetAction(ai, "reach party member to heal", PartyMemberToHeal::HealSpellRange()) {}
         virtual std::string GetTargetName() override { return "party member to heal"; }
 
+        // A healer led by a player walks with `healer move`, which checks where it goes.
+        virtual bool isUseful() override { return !LedHealer(ai) && ReachTargetAction::isUseful(); }
+
         // A HEALER WALKS TO ITS PATIENT (bug #139, 2026-11-03). Unqualified, from
-        // the trigger "party member to heal out of spell range" at 35: range is
+        // the trigger "party member to heal out of spell range" at 59: range is
         // HealSpellRange (40). As a heal's prerequisite, range is that spell's own
         // (40 for every direct heal). Both walk only past that range or out of
         // sight (isUseful), and stop HealChaseMargin (5 yd) inside it.

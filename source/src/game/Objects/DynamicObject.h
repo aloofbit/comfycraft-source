@@ -59,8 +59,9 @@ class DynamicObject : public WorldObject
         bool NeedsRefresh(Unit *unit) const;
         void AddAffected(Unit* unit);
         void RemoveAffected(Unit* unit);
-        // bot calls IsAffecting(Unit*).
-        bool IsAffecting(Unit* /*unit*/) const { return false; }
+        // True while this area has an aura on the unit. SpellAuras calls RemoveAffected
+        // when the unit leaves. The bot's area damage check reads this.
+        bool IsAffecting(Unit* unit) const;
         void Delay(int32 delaytime);
         char const* GetName() const final { return "DynamicObject"; }
 

@@ -45,6 +45,9 @@
 
 #include <array>
 
+// A companion that takes no loot: out of round robin, rolls and the coin split.
+extern bool Playerbot_CompanionTakesNoLoot(uint32 guidLow);
+
 GroupMemberStatus GetGroupMemberStatus(const Player *member = nullptr)
 {
     uint8 flags = MEMBER_STATUS_OFFLINE;
@@ -1013,6 +1016,9 @@ void Group::StartLootRoll(Creature* lootTarget, LootMethod method, Loot* loot, u
 
     Roll* r = new Roll(lootTarget->GetObjectGuid(), lootItem);
 
+    bool companionLeftOut = false;
+    uint32 playersInRange = 0;
+
     //a vector is filled with only near party members
     for (GroupReference *itr = GetFirstMember(); itr != nullptr; itr = itr->next())
     {
@@ -1020,14 +1026,31 @@ void Group::StartLootRoll(Creature* lootTarget, LootMethod method, Loot* loot, u
         if (!playerToRoll || !playerToRoll->GetSession() || !playerToRoll->IsInWorld())
             continue;
 
-        if ((method != NEED_BEFORE_GREED || playerToRoll->CanUseItem(item) == EQUIP_ERR_OK) &&
-            lootItem.AllowedForPlayer(playerToRoll, lootTarget) &&
-            loot->IsAllowedLooter(playerToRoll->GetObjectGuid(), false) &&
-            playerToRoll->IsWithinLootXPDist(lootTarget))
+        if (Playerbot_CompanionTakesNoLoot(playerToRoll->GetGUIDLow()))
+        {
+            companionLeftOut = true;
+            continue;
+        }
+
+        if (!lootItem.AllowedForPlayer(playerToRoll, lootTarget) ||
+            !loot->IsAllowedLooter(playerToRoll->GetObjectGuid(), false) ||
+            !playerToRoll->IsWithinLootXPDist(lootTarget))
+            continue;
+
+        ++playersInRange;
+
+        if (method != NEED_BEFORE_GREED || playerToRoll->CanUseItem(item) == EQUIP_ERR_OK)
         {
             r->playerVote[playerToRoll->GetObjectGuid()] = ROLL_NOT_EMITED_YET;
             ++r->totalPlayersRolling;
         }
+    }
+
+    // One player and companions: no roll. The item stays on the corpse, unblocked.
+    if (companionLeftOut && playersInRange == 1)
+    {
+        delete r;
+        return;
     }
 
     if (r->totalPlayersRolling > 0)                         // has looters
@@ -2580,6 +2603,12 @@ void Group::UpdateLooterGuid(WorldObject* pLootedObject, bool ifneed)
             break;
     }
 
+    // A companion that takes no loot never holds the turn.
+    auto const canBeLooter = [pLootedObject](Player const* player)
+    {
+        return player->IsWithinLootXPDist(pLootedObject) && !Playerbot_CompanionTakesNoLoot(player->GetGUIDLow());
+    };
+
     ObjectGuid oldLooterGUID = GetLooterGuid();
     member_citerator guid_itr = _getMemberCSlot(oldLooterGUID);
     if (guid_itr != m_memberSlots.end())
@@ -2588,8 +2617,7 @@ void Group::UpdateLooterGuid(WorldObject* pLootedObject, bool ifneed)
         {
             // not update if only update if need and ok
             Player* looter = ObjectAccessor::FindPlayer(guid_itr->guid);
-            //if (looter && looter->IsWithinDistInMap(pLootedObject, sWorld.getConfig(CONFIG_FLOAT_GROUP_XP_DISTANCE), false))
-            if (looter && looter->IsWithinLootXPDist(pLootedObject))
+            if (looter && canBeLooter(looter))
                 return;
         }
         ++guid_itr;
@@ -2600,8 +2628,7 @@ void Group::UpdateLooterGuid(WorldObject* pLootedObject, bool ifneed)
     for (member_citerator itr = guid_itr; itr != m_memberSlots.end(); ++itr)
     {
         if (Player* player = ObjectAccessor::FindPlayer(itr->guid))
-            //if (player->IsWithinDistInMap(pLootedObject, sWorld.getConfig(CONFIG_FLOAT_GROUP_XP_DISTANCE), false))
-            if (player->IsWithinLootXPDist(pLootedObject))
+            if (canBeLooter(player))
             {
                 pNewLooter = player;
                 break;
@@ -2614,8 +2641,7 @@ void Group::UpdateLooterGuid(WorldObject* pLootedObject, bool ifneed)
         for (member_citerator itr = m_memberSlots.begin(); itr != guid_itr; ++itr)
         {
             if (Player* player = ObjectAccessor::FindPlayer(itr->guid))
-                //if (player->IsWithinDistInMap(pLootedObject, sWorld.getConfig(CONFIG_FLOAT_GROUP_XP_DISTANCE), false))
-                if (player->IsWithinLootXPDist(pLootedObject))
+                if (canBeLooter(player))
                 {
                     pNewLooter = player;
                     break;

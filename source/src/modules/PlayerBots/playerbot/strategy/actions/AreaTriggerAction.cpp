@@ -32,6 +32,19 @@ bool ReachAreaTriggerAction::Execute(Event& event)
         return true;
     }
 
+    // A BOT RUNS TO A TRIGGER ONLY FOR A REASON (2026-11-05). Every trigger a master
+    // touched sent the bot to its centre at relevance 100, above every heal. Trigger
+    // 3746 inside the Deadmines entrance has no teleport and no quest, and it pulled
+    // a healer out of a fight with "Wait for me". The bot now runs for a teleport or
+    // for an explore quest it needs, and never in combat.
+    if (bot->IsInCombat())
+        return false;
+
+    const uint32 questId = sObjectMgr.GetQuestForAreaTrigger(triggerId);
+    const bool needsQuest = questId && bot->GetQuestStatus(questId) == QUEST_STATUS_INCOMPLETE;
+    if (!sObjectMgr.GetAreaTriggerTeleport(triggerId) && !needsQuest)
+        return false;
+
     if (bot->GetMapId() != atEntry->mapid || bot->GetDistance(atEntry->x, atEntry->y, atEntry->z) > sPlayerbotAIConfig.sightDistance)
     {
         ai->TellError(requester, "I won't follow: too far away");

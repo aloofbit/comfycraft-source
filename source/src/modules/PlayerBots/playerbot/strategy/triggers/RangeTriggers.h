@@ -8,6 +8,7 @@
 #include "playerbot/strategy/values/LastMovementValue.h"
 #include "playerbot/strategy/values/PartyMemberToHeal.h"
 #include "playerbot/FleeManager.h"
+#include "playerbot/HealerSpot.h"
 
 namespace ai
 {
@@ -18,6 +19,10 @@ namespace ai
         
         virtual bool IsActive() override
         {
+            // `healer bad spot` has this rule for a healer led by a player.
+            if (LedHealer(ai))
+                return false;
+
             // A FLEE THAT FOUND NOWHERE TO GO WAITS 5 S (2026-10-19). The trigger
             // fired again every tick at 30 and kept a hunter 5.7 yd from a mob,
             // unable to shoot (8 yd minimum) and unable to switch to melee, and a
@@ -85,23 +90,6 @@ namespace ai
                     ai->CanCastSpell("auto shot", target, 0, nullptr, true, false, false, &shot);
                     if (shot == SPELL_FAILED_TOO_CLOSE)
                         return true;
-                }
-
-                // A HEALER IN A PLAYER'S GROUP KEEPS 10 YD FROM THE FIGHT (2026-10-18).
-                // With two elites on the tanking player, the priest stood beside them
-                // for the whole fight: the rule below ignores a mob that hits someone
-                // else. Any mob on the attack list counts. HealBeforeFleeMultiplier
-                // still holds the flee back while somebody is below 90%.
-                if (PlayerbotAI::IsHeal(bot) && ai->HasRealPlayerMaster() && bot->getClass() != CLASS_HUNTER)
-                {
-                    for (ObjectGuid const& guid : AI_VALUE(std::list<ObjectGuid>, "attackers"))
-                    {
-                        Unit* attacker = ai->GetUnit(guid);
-                        if (attacker && sServerFacade.IsAlive(attacker) && sServerFacade.GetDistance2d(bot, attacker) < 10.0f)
-                            return true;
-                    }
-
-                    return false;
                 }
 
                 // Casters have no minimum range — only flee if the mob is actually targeting/attacking this bot.
@@ -262,6 +250,46 @@ namespace ai
 
     // A rooted mob hits this bot from inside its reach (RootedAttackerInReach).
     // Off for 5 s after a step found no spot, the same wait as the flee.
+    // The place a healer stands has a fault it can fix (HealerSpot.h).
+    class HealerBadSpotTrigger : public Trigger
+    {
+    public:
+        HealerBadSpotTrigger(PlayerbotAI* ai) : Trigger(ai, "healer bad spot") {}
+
+        bool IsActive() override { return HealerWantsToMove(ai); }
+    };
+
+    // A MOB ON A HEALER: IT STANDS STILL FOR THE TANK, AND SAYS SO (2026-11-05, the
+    // owner). True when a mob is on it and its health is under 75%, at most once in 10 s
+    // (2026-11-08, the owner). A fleeing mob does not count. People know why it
+    // is not moving.
+    class HealerMobOnItTrigger : public Trigger
+    {
+    public:
+        HealerMobOnItTrigger(PlayerbotAI* ai) : Trigger(ai, "healer mob on it"), lastCall(0) {}
+
+        bool IsActive() override
+        {
+            if (!PlayerbotAI::IsHeal(bot) || !ai->HasRealPlayerMaster() || !bot->GetGroup() || !MobOnHealer(bot))
+                return false;
+
+            if (bot->GetHealthPercent() >= 75.0f)
+                return false;
+
+            // The clock does not reset between mobs or heals, so a health that goes up and
+            // down round 75% still gives one line in 10 s.
+            const time_t now = time(nullptr);
+            if (lastCall && now - lastCall < 10)
+                return false;
+
+            lastCall = now;
+            return true;
+        }
+
+    private:
+        time_t lastCall;
+    };
+
     class RootedAttackerInReachTrigger : public Trigger
     {
     public:
@@ -349,6 +377,10 @@ namespace ai
         // where the healer stands, and the walk it started there was not needed.
         virtual bool IsActive() override
         {
+            // `healer bad spot` has this rule for a healer led by a player.
+            if (LedHealer(ai))
+                return false;
+
             Unit* target = AI_VALUE(Unit*, GetTargetName());
             if (!target || !PartyMemberToHeal::WorthWalkingTo(ai, target))
                 return false;
@@ -486,6 +518,10 @@ namespace ai
                 return false;
 
             if (ai->IsStateActive(BotState::BOT_STATE_COMBAT) && !ai->IsRanged(bot) && !ai->IsHeal(bot))
+                return false;
+
+            // In a fight `healer bad spot` has this rule for a healer led by a player.
+            if (ai->IsStateActive(BotState::BOT_STATE_COMBAT) && LedHealer(ai))
                 return false;
 
             if (sServerFacade.GetDistance2d(bot, master) <= sPlayerbotAIConfig.followDistance + 2.0f)

@@ -74,6 +74,7 @@ struct ComfyCommands
     // Maps/ArrivalFloor.cpp
     static bool HandleFloorBeatCommand(ChatHandler* handler, char* args);
     static bool HandleFloorProbeCommand(ChatHandler* handler, char* args);
+    static bool HandleFloorBenchCommand(ChatHandler* handler, char* args);
 
     // Chat/SoundLog.cpp
     static bool HandleSoundLogCommand(ChatHandler* handler, char* args);

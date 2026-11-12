@@ -735,6 +735,8 @@ public:
     // `follow` holds fire for a moment and then lets go; see FollowChatShortcutAction.
     void FadePassiveAfter(uint32 ms);
     void CancelPassiveFade() { passiveFadeStartMs = 0; }
+    void NoteLastStep(const std::string& name);
+    void NoteMealEnd();
     // A buff cast that worked. The drink waits for the buffs: see HighManaTrigger.
     void NoteBuffCast() { lastBuffCast = time(nullptr); }
     bool BuffedWithin(time_t seconds) const { return lastBuffCast && time(nullptr) - lastBuffCast < seconds; }
@@ -924,6 +926,8 @@ protected:
     uint32 jumpTime;
     bool fallAfterJump;
     uint32 passiveFadeStartMs = 0; // when a follow set its passive, 0 = no fade pending
+    uint32 mealStartMs = 0;        // when a meal aura was first seen, 0 = no meal
+    std::string lastStep;          // what last ran for a bot led by a player, for NoteMealEnd
     time_t lastBuffCast = 0;
     time_t lastHealCast = 0;
     bool tightFollow = false;

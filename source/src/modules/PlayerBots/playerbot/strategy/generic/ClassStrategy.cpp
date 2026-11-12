@@ -1450,21 +1450,38 @@ void SpecPlaceholderStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& tri
 // PartyMemberToHeal::HealSpellRange) or out of sight, and hurt enough to walk to
 // (PartyMemberToHeal::WorthWalkingTo). The walk stops 5 yd inside that range.
 //
-// In combat 35: above damage and the wand (10 to 20) and the ranged flee (30),
-// below `avoid patrol` (40), the heals (59 and up) and the panic flee (95 and up).
+// A heal starts the same walk as its prerequisite, but only when the heal is
+// useful. With Renew already on the patient no heal runs, so this trigger is the
+// only start. In combat 59, the lowest heal (2026-11-05, was 35), so both starts
+// rank with the heals: above `avoid patrol` (40) and the ranged flee (30), below
+// the panic flee (95 and up). The two starts cannot compete: this trigger is
+// true only when no heal can reach the patient.
 // Out of combat 25: above follow (20), below the patrol watch.
+//
+// A HEALER LED BY A PLAYER HAS ONE MOVER (2026-11-05, the owner). `healer bad spot`
+// takes the place of that walk, the 10 yd flee, the patrol watch in a fight and the
+// walk for a wand. In a fight 85: above every heal (they stop at 81), as out of danger
+// comes before a normal heal. The test holds when a heal comes first. See HealerSpot.h.
 void HealerPlaceholderStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     SpecPlaceholderStrategy::InitCombatTriggers(triggers);
 
     triggers.push_back(new TriggerNode(
+        "healer bad spot",
+        NextAction::array(0, new NextAction("healer move", ACTION_CRITICAL_HEAL + 5), NULL)));
+
+    triggers.push_back(new TriggerNode(
         "party member to heal out of spell range",
-        NextAction::array(0, new NextAction("reach party member to heal", ACTION_MOVE + 5), NULL)));
+        NextAction::array(0, new NextAction("reach party member to heal", ACTION_LIGHT_HEAL - 1), NULL)));
 }
 
 void HealerPlaceholderStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     SpecPlaceholderStrategy::InitNonCombatTriggers(triggers);
+
+    triggers.push_back(new TriggerNode(
+        "healer bad spot",
+        NextAction::array(0, new NextAction("healer move", ACTION_HIGH + 5), NULL)));
 
     triggers.push_back(new TriggerNode(
         "party member to heal out of spell range",

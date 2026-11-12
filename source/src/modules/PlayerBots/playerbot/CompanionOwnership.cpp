@@ -490,6 +490,14 @@ bool Playerbot_IsCompanion(uint32 guidLow)
     return CompanionOwnership::IsCompanion(guidLow);
 }
 
+// Backs group loot (Group.cpp, LootMgr.cpp, LootHandler.cpp): with
+// CompanionTakesLoot = 0 a companion is out of round robin, rolls and the coin
+// split. Map threads call it; IsCompanion takes s_lock shared.
+bool Playerbot_CompanionTakesNoLoot(uint32 guidLow)
+{
+    return !sPlayerbotAIConfig.companionTakesLoot && CompanionOwnership::IsCompanion(guidLow);
+}
+
 // Backs FactionlessWar::AtWar (Object.cpp): a companion fights what its owner
 // fights. Map threads call it; GetOwner takes s_lock shared. 0 for a character
 // that is not a companion.

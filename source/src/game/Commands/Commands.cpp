@@ -15911,6 +15911,7 @@ namespace
         { "flightmode",        ".flightmode [on | off]   whether GM flight is on, or set it" },
         { "floorbeat",         ".floorbeat [off | plain | lift] [seconds]   still creatures near players: position sent again, how and how often" },
         { "floorprobe",        ".floorprobe [above]   the server's floor under the selected unit or you, and each gameobject under it" },
+        { "floorbench",        ".floorbench <map> <x> <y> <z> [rounds]   time height and sight queries at a place, static and gameobject searches apart" },
         { "soundlog",          ".soundlog [on | off]   a chat line for each sound the server sends you, with its source" },
         { "companions",        ".companions   name your companions" },
         { "hire",              ".hire tank | healer | dps [class [spec]], .hire dismiss   a companion at your level, as Elowen hires" },

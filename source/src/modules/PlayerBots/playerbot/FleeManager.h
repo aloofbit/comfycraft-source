@@ -20,6 +20,10 @@ namespace ai
     // stands. False when none passes; `note` says where.
     bool FindMasterRingSpot(PlayerbotAI* ai, float& rx, float& ry, float& rz, std::string& note);
 
+    // With `debug` on, a `move:` line with where the bot, its master and the nearest
+    // mobs stand. For a walk the log cannot explain.
+    void DebugMove(PlayerbotAI* ai, const std::string& name);
+
     // A rooted mob that hits this ranged bot or healer from inside its melee
     // reach, or null. The bot can step out of reach and keep casting.
     Unit* RootedAttackerInReach(PlayerbotAI* ai);

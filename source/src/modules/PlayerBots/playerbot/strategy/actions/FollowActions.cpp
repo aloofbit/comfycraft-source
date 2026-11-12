@@ -48,8 +48,15 @@ static float LooseDistance(Player* bot)
 
 static bool LooseTooFar(Player* bot, Unit* followTarget)
 {
-    return sServerFacade.GetDistance2d(bot, followTarget) > LooseDistance(bot) + 4.0f ||
-        std::fabs(bot->GetPositionZ() - followTarget->GetPositionZ()) > 4.0f ||
+    if (sServerFacade.GetDistance2d(bot, followTarget) > LooseDistance(bot) + 4.0f)
+        return true;
+
+    // A healer stops once it can see its owner (2026-11-05, the owner). Walking in to
+    // 2 yd put it beside the first mob of the next pull.
+    if (PlayerbotAI::IsHeal(bot))
+        return !bot->IsWithinLOSInMap(followTarget, true);
+
+    return std::fabs(bot->GetPositionZ() - followTarget->GetPositionZ()) > 4.0f ||
         !bot->IsWithinLOSInMap(followTarget, true);
 }
 
@@ -66,13 +73,16 @@ bool FollowAction::Execute(Event& event)
 
         // Too far on the flat: stop a little inside the distance. Above, below or out
         // of sight: come right up, or the same spot would be out of reach again.
-        const bool flatOnly = std::fabs(bot->GetPositionZ() - followTarget->GetPositionZ()) <= 4.0f &&
+        // A healer out of sight takes the follow path below, which isUseful stops the
+        // moment it can see the owner. A point move would run on to its end.
+        const bool isHealer = PlayerbotAI::IsHeal(bot);
+        const bool flatOnly = (isHealer || std::fabs(bot->GetPositionZ() - followTarget->GetPositionZ()) <= 4.0f) &&
             bot->IsWithinLOSInMap(followTarget, true);
         const float stopAt = flatOnly ? std::max(LooseDistance(bot) - 2.0f, sPlayerbotAIConfig.followDistance)
                                       : sPlayerbotAIConfig.followDistance;
 
         const float gap = sServerFacade.GetDistance2d(bot, followTarget);
-        const bool moved = MoveNear(followTarget, stopAt);
+        const bool moved = (isHealer && !flatOnly) ? false : MoveNear(followTarget, stopAt);
 
         // With `debug` on, a healer says each follow walk: "heal follow: to
         // <owner>, <gap> yd (stands within <n>), <why>, stop at <n> yd".

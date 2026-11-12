@@ -45,6 +45,9 @@ bool BotNpc_Dress(Player*, std::string const&, std::string& error)
 // Backs /who leaving companions out. No bot module, no companions.
 bool Playerbot_IsCompanion(uint32) { return false; }
 
+// Backs companions staying out of group loot. No bot module, no companions.
+bool Playerbot_CompanionTakesNoLoot(uint32) { return false; }
+
 // Backs a companion sharing its owner's war (FactionlessWar::AtWar).
 uint32 Playerbot_CompanionOwner(uint32) { return 0; }
 

@@ -33,7 +33,11 @@ float FleeMultiplier::GetValue(Action* action)
 
     // Never let a flee interrupt a cast that is already underway: finishing the spell takes
     // priority. (Same predicate MoveTo() uses before it calls InterruptSpell().)
-    if (bot->IsNonMeleeSpellCasted(true))
+    //
+    // Not for a healer led by a player: its order of work is out of danger, then normal
+    // heals, and the wand counts as a cast here. HealBeforeFleeMultiplier and
+    // FleeAction::WalksDuringCast keep a heal that comes first.
+    if (bot->IsNonMeleeSpellCasted(true) && !(PlayerbotAI::IsHeal(bot) && ai->HasRealPlayerMaster()))
         return 0.0f;
 
     // The subsequent-flee loop break only applies to ranged casters (mage/warlock/priest).
@@ -57,7 +61,9 @@ float FleeMultiplier::GetValue(Action* action)
     // bot then plants and casts instead of running forever; the cast, once started, is kept
     // alive by the IsNonMeleeSpellCasted guard above. Higher-priority reactions the bot is
     // programmed for (Frost Nova, Blast Wave, blink, ...) still win normally.
-    if (lastMovement.fleeCount >= 2)
+    //
+    // Not at critical health: a panic flee is not a loop, and ring flees count here now.
+    if (lastMovement.fleeCount >= 2 && bot->GetHealthPercent() > (float)sPlayerbotAIConfig.criticalHealth)
         return 0.01f;
 
     return 1.0f;

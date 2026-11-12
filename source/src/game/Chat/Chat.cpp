@@ -1078,6 +1078,7 @@ ChatCommand * ChatHandler::getCommandTable()
         { "flightmode",     SEC_DEVELOPER,       false, &ComfyCommands::HandleFlightModeCommand,        "", nullptr },
         { "floorbeat",      SEC_DEVELOPER,       true,  &ComfyCommands::HandleFloorBeatCommand,         "Syntax: .floorbeat [off | plain | lift] [seconds]\r\nShows how often still creatures near players get their position sent again, or sets it.", nullptr },
         { "floorprobe",     SEC_DEVELOPER,       false, &ComfyCommands::HandleFloorProbeCommand,        "Syntax: .floorprobe [above]\r\nShows the server's floor height under the selected unit or you, and each gameobject under it.", nullptr },
+        { "floorbench",     SEC_DEVELOPER,       true,  &ComfyCommands::HandleFloorBenchCommand,        "Syntax: .floorbench <map> <x> <y> <z> [rounds]\r\nTimes height and line-of-sight queries at a place: the static search and the gameobject search.", nullptr },
         { "soundlog",       SEC_DEVELOPER,       false, &ComfyCommands::HandleSoundLogCommand,          "Syntax: .soundlog [on | off]\r\nOne chat line for each sound the server sends you, with its source.", nullptr },
         { "showarea",       SEC_ADMINISTRATOR,   false, &ChatHandler::HandleShowAreaCommand,            "", nullptr },
         { "hidearea",       SEC_ADMINISTRATOR,   false, &ChatHandler::HandleHideAreaCommand,            "", nullptr },

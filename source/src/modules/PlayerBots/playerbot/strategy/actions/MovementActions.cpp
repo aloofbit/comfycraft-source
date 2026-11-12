@@ -2,9 +2,11 @@
 #include "playerbot/playerbot.h"
 #include "playerbot/PerformanceMonitor.h"
 #include "MovementActions.h"
+#include "playerbot/strategy/values/PartyMemberToHeal.h"
 #include "Movement/MotionMaster.h"
 #include "Movement/MovementGenerator.h"
 #include "playerbot/FleeManager.h"
+#include "playerbot/HealerSpot.h"
 #include "playerbot/CompanionOwnership.h"
 #include "Maps/PathFinder.h"
 #include "playerbot/LootObjectStack.h"
@@ -98,7 +100,7 @@ bool MovementAction::isUseful()
     // the pull: a gun or a wand is an auto-repeat spell, so a tank shooting is
     // not "casting" by this test and keeps its freedom to move. Only real cast
     // bars and channels stop the feet.
-    if (bot->IsNonMeleeSpellCasted(true, false, true))
+    if (bot->IsNonMeleeSpellCasted(true, false, true) && !WalksDuringCast())
         return false;
 
     return !ai->HasStrategy("stay", ai->GetState());
@@ -3103,7 +3105,7 @@ bool MovementAction::Flee(Unit *target)
             return MoveNear(master, sPlayerbotAIConfig.followDistance);
         }
 
-        if (!bot->getAttackers().empty())
+        if (LedHealer(ai) ? MobOnHealer(bot) != nullptr : !bot->getAttackers().empty())
         {
             where("staying, a mob is on me");
             return false;
@@ -3144,12 +3146,23 @@ bool MovementAction::Flee(Unit *target)
             else
                 where("to a spot " + note);
 
+            const float walk = sServerFacade.GetDistance2d(bot, rx, ry);
             if (!MoveTo(bot->GetMapId(), rx, ry, rz, false, false, false, true))
                 return false;
 
+            // A ring flee counts toward the repeat flee stop (FleeMultiplier). Only the
+            // old flee below counted, so a bot on the ring fled without limit (2026-11-05).
             LastMovement& lm = AI_VALUE(LastMovement&, "last movement");
+            if (lm.lastFleeAttempt && (now - lm.lastFleeAttempt) <= (time_t)(sPlayerbotAIConfig.returnDelay / 1000))
+                lm.fleeCount++;
+            else
+                lm.fleeCount = 1;
             lm.lastFlee = time(nullptr);
             lm.lastFleeAttempt = now;
+
+            // The longest path FindMasterRingSpot takes is 1.5 times the line + 5 yd.
+            lm.fleeWalkUntil = WorldTimer::getMSTime() + uint32(1000.0f * MoveDelay(1.5f * walk + 5.0f));
+            lm.walkForSight = false;
             return true;
         }
 
@@ -3556,6 +3569,115 @@ bool MovementAction::GeneratePathAvoidingHazards(std::vector<WorldPosition>& mov
 
         return true;
     }
+
+    return false;
+}
+
+// A QUEUED FLEE IS CHECKED AGAIN (2026-11-05). An action that loses a tick stays in
+// the queue for up to 5 s, and its trigger is not asked again. A healer lost a tick
+// to `avoid patrol`, then fled from a mob 15.7 yd away, on a rule of 10 yd. For a
+// healer led by a player the flee now needs the danger to be there still.
+bool FleeAction::isUseful()
+{
+    if (PlayerbotAI::IsHeal(bot) && ai->HasRealPlayerMaster() &&
+        bot->GetHealthPercent() > (float)sPlayerbotAIConfig.criticalHealth)
+    {
+        bool danger = AI_VALUE2(bool, "has area debuff", "self target");
+        if (!danger)
+        {
+            for (ObjectGuid const& guid : AI_VALUE(std::list<ObjectGuid>, "attackers"))
+            {
+                Unit* attacker = ai->GetUnit(guid);
+                if (attacker && sServerFacade.IsAlive(attacker) && sServerFacade.GetDistance2d(bot, attacker) < 10.0f)
+                {
+                    danger = true;
+                    break;
+                }
+            }
+        }
+
+        if (!danger)
+            return false;
+    }
+
+    return MovementAction::isUseful();
+}
+
+// Out of danger comes before a normal heal, so the flee cancels that cast. A heal
+// that comes first is kept.
+bool FleeAction::WalksDuringCast()
+{
+    return PlayerbotAI::IsHeal(bot) && ai->HasRealPlayerMaster() && !PartyMemberToHeal::HealerHealsFirst(ai);
+}
+
+bool HealerMoveAction::isUseful()
+{
+    return ai->CanMove() && MovementAction::isUseful() && HealerWantsToMove(ai);
+}
+
+// Out of danger comes before a normal heal, so the walk cancels that cast. A heal that
+// comes first has no fault here. A walk for sight waits for the cast to end.
+bool HealerMoveAction::WalksDuringCast()
+{
+    const HealerFault fault = HealerSpotFault(ai);
+    return fault == HealerFault::Area || fault == HealerFault::Fight || fault == HealerFault::Idle;
+}
+
+bool HealerMoveAction::Execute(Event& event)
+{
+    const HealerFault fault = HealerSpotFault(ai);
+    if (fault == HealerFault::None)
+        return false;
+
+    Player* master = GetMaster();
+    const bool explain = master && ai->HasStrategy("debug", BotState::BOT_STATE_NON_COMBAT);
+    LastMovement& lm = AI_VALUE(LastMovement&, "last movement");
+
+    float rx, ry, rz;
+    std::string note;
+    if (!FindHealerSpot(ai, fault, rx, ry, rz, note))
+    {
+        lm.lastHealerNoSpot = time(nullptr);
+        if (explain)
+            ai->TellPlayerNoFacing(master, "heal move: " + std::string(HealerFaultName(fault)) + ", no spot, staying",
+                PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, true, false);
+        return false;
+    }
+
+    const float walk = sServerFacade.GetDistance2d(bot, rx, ry);
+    if (!MoveTo(bot->GetMapId(), rx, ry, rz, false, false, false, true))
+    {
+        lm.lastHealerNoSpot = time(nullptr);
+        return false;
+    }
+
+    const time_t now = time(nullptr);
+    if (lm.lastHealerWalk && (now - lm.lastHealerWalk) <= (time_t)(sPlayerbotAIConfig.returnDelay / 1000))
+        lm.healerWalks++;
+    else
+        lm.healerWalks = 1;
+    lm.lastHealerWalk = now;
+
+    // The longest path FindHealerSpot takes is 1.5 times the line + 5 yd.
+    lm.fleeWalkUntil = WorldTimer::getMSTime() + uint32(1000.0f * MoveDelay(1.5f * walk + 5.0f));
+    lm.walkForSight = fault == HealerFault::Sight;
+
+    // MoveTo slept the AI for the walk. The engine holds spells and moves while the
+    // walk runs (HealerWalkingOut), so the ticks only look for a heal that comes first
+    // and for the moment the priest can see.
+    SetDuration(sPlayerbotAIConfig.reactDelay);
+
+    if (explain)
+        ai->TellPlayerNoFacing(master, "heal move: " + std::string(HealerFaultName(fault)) + ", to a spot " + note,
+            PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, true, false);
+
+    return true;
+}
+
+bool HealerCallForHelpAction::Execute(Event& event)
+{
+    if (Unit* mob = MobOnHealer(bot))
+        ai->SayToParty(std::string(mob->GetName()) + " is on me, get it off me!");
 
     return false;
 }

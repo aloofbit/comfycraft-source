@@ -86,6 +86,7 @@ namespace ai
 
     private:
         void InitCombatMultipliers(std::list<Multiplier*>& multipliers) override;
+        void InitCombatTriggers(std::list<TriggerNode*>& triggers) override;
     };
 
     class AvoidAoeStrategyMultiplier : public Multiplier

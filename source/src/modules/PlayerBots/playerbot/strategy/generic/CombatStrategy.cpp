@@ -39,6 +39,15 @@ void CombatStrategy::InitCombatTriggers(std::list<TriggerNode*> &triggers)
 // enough that it rejoins a fight that has moved on.
 static const uint32 HEALER_BACKOFF_SECONDS = 12;
 
+// A healer with a mob on it says so. Its moves are in HealerSpot.h.
+void HealerCautionStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
+{
+    // Passes through: the action says its line and returns false, so the tick goes on.
+    triggers.push_back(new TriggerNode(
+        "healer mob on it",
+        NextAction::array(0, new NextAction("healer call for help", ACTION_PASSTROUGH), NULL)));
+}
+
 void HealerCautionStrategy::InitCombatMultipliers(std::list<Multiplier*>& multipliers)
 {
     multipliers.push_back(new HealerCautionMultiplier(ai));
@@ -92,6 +101,9 @@ float HealBeforeFleeMultiplier::GetValue(Action* action)
 
     if (bot->GetHealthPercent() <= (float)sPlayerbotAIConfig.criticalHealth)
         return 1.0f;
+
+    if (ai->HasRealPlayerMaster())
+        return PartyMemberToHeal::HealerHealsFirst(ai) ? 0.01f : 1.0f;
 
     // Somebody really hurt. "party member to heal" always holds the tank, at full
     // health too, so a priest behind a tanking player never stepped back from a
